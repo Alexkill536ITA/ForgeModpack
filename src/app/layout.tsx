@@ -1,8 +1,10 @@
 import React from "react"
 import { Geist } from "next/font/google";
 import { cn } from "@/src/lib/utils";
+import { TooltipProvider } from "../components/ui/tooltip";
+import "./globals.css"
 
-const geist = Geist({subsets:['latin'],variable:'--font-sans'});
+const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
 
 
 export default function RootLayout({
@@ -12,7 +14,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="it" className={cn("font-sans", geist.variable)}>
-      <body>{children}</body>
+      <body>
+        <TooltipProvider>
+          {children}
+        </TooltipProvider>
+      </body>
     </html>
   )
 }
