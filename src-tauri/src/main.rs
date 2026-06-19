@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    forgemodpack_v2_lib::run()
+    forgemodpack_lib::run()
 }

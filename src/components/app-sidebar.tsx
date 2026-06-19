@@ -15,7 +15,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "../components/ui/sidebar"
-import { LayoutDashboardIcon, ListIcon, ChartBarIcon, FolderIcon, UsersIcon, CameraIcon, FileTextIcon, Settings2Icon, CircleHelpIcon, SearchIcon, DatabaseIcon, FileChartColumnIcon, FileIcon, CommandIcon } from "lucide-react"
+import { LayoutDashboardIcon, ListIcon, ChartBarIcon, FolderIcon, UsersIcon, CameraIcon, FileTextIcon, Settings2Icon, CircleHelpIcon, SearchIcon, DatabaseIcon, FileChartColumnIcon, FileIcon, CommandIcon, HammerIcon, CopyrightIcon, KeyboardIcon } from "lucide-react"
 
 const data = {
   user: {
@@ -33,93 +33,25 @@ const data = {
       ),
     },
     {
-      title: "Lifecycle",
-      url: "#",
+      title: "List Mods",
+      url: "/listmods",
       icon: (
-        <ListIcon
-        />
+        <ListIcon/>
+      ),
+    },
+    {
+      title: "keybinds",
+      url: "/keybinds",
+      icon: (
+        <KeyboardIcon/>
       ),
     },
     {
       title: "Analytics",
-      url: "#",
+      url: "/analytics",
       icon: (
-        <ChartBarIcon
-        />
+        <ChartBarIcon/>
       ),
-    },
-    {
-      title: "Projects",
-      url: "#",
-      icon: (
-        <FolderIcon
-        />
-      ),
-    },
-    {
-      title: "Team",
-      url: "#",
-      icon: (
-        <UsersIcon
-        />
-      ),
-    },
-  ],
-  navClouds: [
-    {
-      title: "Capture",
-      icon: (
-        <CameraIcon
-        />
-      ),
-      isActive: true,
-      url: "#",
-      items: [
-        {
-          title: "Active Proposals",
-          url: "#",
-        },
-        {
-          title: "Archived",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Proposal",
-      icon: (
-        <FileTextIcon
-        />
-      ),
-      url: "#",
-      items: [
-        {
-          title: "Active Proposals",
-          url: "#",
-        },
-        {
-          title: "Archived",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Prompts",
-      icon: (
-        <FileTextIcon
-        />
-      ),
-      url: "#",
-      items: [
-        {
-          title: "Active Proposals",
-          url: "#",
-        },
-        {
-          title: "Archived",
-          url: "#",
-        },
-      ],
     },
   ],
   navSecondary: [
@@ -187,8 +119,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               className="data-[slot=sidebar-menu-button]:p-1.5!"
             >
               <a href="#">
-                <CommandIcon className="size-5!" />
-                <span className="text-base font-semibold">Acme Inc.</span>
+                <HammerIcon className="size-5!" />
+                <span className="text-base font-semibold">Forge Modpack</span>
               </a>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -200,7 +132,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <div className="flex gap-2 items-center">
+          <CopyrightIcon size={16}/>
+          <span className="text-xs">2023 Forge Modpack by Alexkill536ITA</span>
+        </div>
       </SidebarFooter>
     </Sidebar>
   )
