@@ -252,7 +252,7 @@ export default function Page() {
                       disabled={neoforgeDisabled}
                       className='flex size-32 flex-col items-center justify-center rounded-xl hover:bg-[#5bc8e8] hover:border-[#5bc8e8] data-[state=on]:border-[#5bc8e8] border-2'
                     >
-                      <Image src="/NeoForge.png" width={80} height={80} alt="Neo Forge Logo" />
+                      <Image src="/Neoforge.png" width={80} height={80} alt="Neo Forge Logo" />
                       <span className="text-sm">Neo Forge</span>
                     </ToggleGroupItem>
                     <ToggleGroupItem
