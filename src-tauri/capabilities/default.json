@@ -59,6 +59,7 @@
       ]
     },
     "sql:default",
+    "sql:allow-execute",
     "dialog:default",
     "http:default"
   ]

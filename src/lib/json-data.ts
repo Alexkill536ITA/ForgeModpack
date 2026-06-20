@@ -1,4 +1,4 @@
-import type { project } from "./models";
+import type { project } from "../model/models";
 
 /**
  * Path supportati (notazione a punti + bracket):

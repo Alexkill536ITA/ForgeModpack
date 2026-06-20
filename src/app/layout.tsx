@@ -9,6 +9,8 @@ import { SidebarInset, SidebarProvider } from "../components/ui/sidebar";
 import { AppSidebar } from "../components/app-sidebar";
 import { SiteHeader } from "../components/site-header";
 import { ScrollArea } from "../components/ui/scroll-area";
+import { SaveBar } from "../components/save-bar";
+import { Toaster } from "../components/ui/sonner";
 import ReduxProvider from "../redux/redux-provider";
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
@@ -38,6 +40,7 @@ export default function RootLayout({
                   <div className="flex flex-1 flex-col">
                     <div className="@container/main flex flex-1 flex-col gap-2">
                       <div className="flex flex-col gap-4 p-4 md:gap-6 md:py-6">
+                        <SaveBar />
                         {children}
                       </div>
                     </div>
@@ -46,6 +49,7 @@ export default function RootLayout({
               </SidebarInset>
             </SidebarProvider>
           </TooltipProvider>
+          <Toaster />
         </ReduxProvider>
       </body>
     </html>
