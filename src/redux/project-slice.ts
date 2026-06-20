@@ -1,7 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import type { RootState } from './store'
 import { project } from '../model/models'
-import { setByPath } from '../lib/json-data'
 
 // Define a type for the slice state
 interface projectState {

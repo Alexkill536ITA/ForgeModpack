@@ -14,7 +14,52 @@
         "**"
       ]
     },
+    {
+      "identifier": "fs:allow-write",
+      "allow": [
+        "**"
+      ]
+    },
+    {
+      "identifier": "fs:allow-read",
+      "allow": [
+        "**"
+      ]
+    },
+    {
+      "identifier": "fs:allow-open",
+      "allow": [
+        "**"
+      ]
+    },
+    {
+      "identifier": "fs:allow-create",
+      "allow": [
+        "**"
+      ]
+    },
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://piston-meta.mojang.com/**"
+        },
+        {
+          "url": "https://files.minecraftforge.net/**"
+        },
+        {
+          "url": "https://maven.neoforged.net/**"
+        },
+        {
+          "url": "https://meta.fabricmc.net/**"
+        },
+        {
+          "url": "https://meta.quiltmc.org/**"
+        }
+      ]
+    },
     "sql:default",
-    "dialog:default"
+    "dialog:default",
+    "http:default"
   ]
 }
