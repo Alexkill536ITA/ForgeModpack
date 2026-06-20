@@ -2,12 +2,14 @@ import { configureStore } from '@reduxjs/toolkit'
 import { projectReducer } from './project-slice'
 import { minecraftManifestReducer } from './metadata-mc-slice'
 import { modLoaderManifestReducer } from './metadata-ml-slice'
+import { documentsReducer } from './documents-slice'
 
 export const store = configureStore({
   reducer: {
     project: projectReducer,
     minecraftManifest: minecraftManifestReducer,
-    modLoaderManifest: modLoaderManifestReducer
+    modLoaderManifest: modLoaderManifestReducer,
+    documents: documentsReducer
   }
 })
 

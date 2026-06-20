@@ -24,3 +24,7 @@ dist-ssr
 *.sw?
 
 .next
+out
+
+# Asset di Monaco copiati da scripts/copy-monaco.mjs (rigenerati a build/dev)
+public/monaco

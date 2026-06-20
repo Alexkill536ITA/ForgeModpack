@@ -2,7 +2,7 @@
 
 import * as React from "react"
 
-import { NavDocuments } from "../components/nav-documents"
+import { NavFiles } from "../components/nav-files"
 import { NavMain } from "../components/nav-main"
 import { NavSecondary } from "../components/nav-secondary"
 import {
@@ -14,7 +14,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "../components/ui/sidebar"
-import { LayoutDashboardIcon, ListIcon, ChartBarIcon, FolderIcon, UsersIcon, CameraIcon, FileTextIcon, Settings2Icon, CircleHelpIcon, SearchIcon, DatabaseIcon, FileChartColumnIcon, FileIcon, CommandIcon, HammerIcon, CopyrightIcon, KeyboardIcon } from "lucide-react"
+import { LayoutDashboardIcon, ListIcon, ChartBarIcon, FolderIcon, UsersIcon, CameraIcon, FileTextIcon, Settings2Icon, CircleHelpIcon, SearchIcon, DatabaseIcon, FileChartColumnIcon, FileIcon, CommandIcon, HammerIcon, CopyrightIcon, KeyboardIcon, FolderTreeIcon, CpuIcon } from "lucide-react"
 
 const data = {
   user: {
@@ -46,12 +46,19 @@ const data = {
       ),
     },
     {
-      title: "Analytics",
-      url: "/analytics",
+      title: "JVM",
+      url: "/jvm",
       icon: (
-        <ChartBarIcon/>
+        <CpuIcon/>
       ),
     },
+    // {
+    //   title: "Analytics",
+    //   url: "/analytics",
+    //   icon: (
+    //     <ChartBarIcon/>
+    //   ),
+    // },
   ],
   navSecondary: [
     {
@@ -79,32 +86,6 @@ const data = {
       ),
     },
   ],
-  documents: [
-    {
-      name: "Data Library",
-      url: "#",
-      icon: (
-        <DatabaseIcon
-        />
-      ),
-    },
-    {
-      name: "Reports",
-      url: "#",
-      icon: (
-        <FileChartColumnIcon
-        />
-      ),
-    },
-    {
-      name: "Word Assistant",
-      url: "#",
-      icon: (
-        <FileIcon
-        />
-      ),
-    },
-  ],
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
@@ -127,13 +108,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={data.navMain} />
-        <NavDocuments items={data.documents} />
-        <NavSecondary items={data.navSecondary} className="mt-auto" />
+        <NavFiles />
+        {/* <NavSecondary items={data.navSecondary} className="mt-auto" /> */}
       </SidebarContent>
       <SidebarFooter>
         <div className="flex gap-2 items-center">
           <CopyrightIcon size={16}/>
-          <span className="text-xs">2023 Forge Modpack by Alexkill536ITA</span>
+          <span className="text-xs">2026 Forge Modpack by Alexkill536ITA</span>
         </div>
       </SidebarFooter>
     </Sidebar>

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { KeyboardIcon, MouseIcon, PlusIcon, Trash2Icon, MapIcon, XIcon, PencilIcon, SearchIcon } from "lucide-react"
+import { KeyboardIcon, MouseIcon, PlusIcon, Trash2Icon, MapIcon, XIcon, PencilIcon, SearchIcon, BoxesIcon, TagsIcon } from "lucide-react"
 
 import { ProjectGate } from "../../components/project-gate"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card"
@@ -30,6 +30,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select"
+import {
+  ColorPicker,
+  ColorPickerSelection,
+  ColorPickerHue,
+  ColorPickerEyeDropper,
+  ColorPickerOutput,
+  ColorPickerFormat,
+} from "../../components/ui/color-picker"
 import { useAppDispatch } from "../../redux/hooks"
 import { updateProject } from "../../redux/project-slice"
 import { cn } from "../../lib/utils"
@@ -43,7 +51,7 @@ import {
   KeyboardItem,
   isSpacer,
 } from "../../lib/keyboard-layout"
-import { defaultKeybinds, defaultCategories } from "../../lib/keybind-template"
+import { defaultKeybinds, defaultCategories, defaultTags } from "../../lib/keybind-template"
 
 const UNIT_REM = 2.5
 const GAP_REM = 0.25
@@ -175,6 +183,7 @@ function KeybindsBoard({ project }: { project: project }) {
   function commit(next: project) {
     dispatch(updateProject(next))
   }
+
   function commitKeybinds(keybinds: keybind[]) {
     const keybindMaps = maps.map((m, i) => (i === activeMap ? { ...m, keybinds } : m))
     commit({ ...project, keybindMaps })
@@ -195,11 +204,13 @@ function KeybindsBoard({ project }: { project: project }) {
     setMapName("")
     setMapOpen(true)
   }
+
   function openEditMap(index: number) {
     setEditingMapIndex(index)
     setMapName(maps[index].name)
     setMapOpen(true)
   }
+
   function saveMap() {
     const name = mapName.trim()
     if (!name) return
@@ -209,12 +220,17 @@ function KeybindsBoard({ project }: { project: project }) {
     } else {
       // Nuova mappa pre-popolata dal template (azioni + categorie di default).
       const keybindMaps = [...maps, { name, keybinds: defaultKeybinds() }]
-      const existing = new Set(categories.map((c) => c.name))
+      const existingCategories = new Set(categories.map((c) => c.name))
+      const existingTags = new Set(tags.map((c) => c.name))
       const keybindCategories = [
         ...categories,
-        ...defaultCategories().filter((c) => !existing.has(c.name)),
+        ...defaultCategories().filter((c) => !existingCategories.has(c.name)),
       ]
-      commit({ ...project, keybindMaps, keybindCategories })
+      const keybindTags = [
+        ...tags,
+        ...defaultTags().filter((c) => !existingTags.has(c.name))
+      ]
+      commit({ ...project, keybindMaps, keybindCategories, keybindTags })
       setActiveMap(keybindMaps.length - 1)
     }
     setMapOpen(false)
@@ -379,38 +395,59 @@ function KeybindsBoard({ project }: { project: project }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Box filtri (mod + tag) sempre visibile in cima */}
-      <Card className="sticky top-0 z-20">
-        <CardContent className="space-y-2 py-3">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-medium">Mods & Tags</span>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={openAddMod}><PlusIcon /> Mod</Button>
-              <Button variant="outline" size="sm" onClick={openAddTag}><PlusIcon /> Tag</Button>
+      <div className="w-full flex items-stretch gap-4">
+        {/* Box filtri (mod + tag) sempre visibile in cima */}
+        <Card className="sticky top-0 z-20 w-full h-full">
+          <CardHeader className="flex items-center justify-between">
+            <div className="flex gap-4">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-green-500/20">
+                <BoxesIcon className="size-6" />
+              </div>
+              <CardTitle className="text-2xl">Mods</CardTitle>
             </div>
-          </div>
-          {categories.length === 0 && tags.length === 0 && (
-            <p className="text-sm text-muted-foreground">Add a mod or a tag to start.</p>
-          )}
-          {/* Click su un chip = modifica la mod/il tag */}
-          {categories.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="w-10 text-xs text-muted-foreground">Mods</span>
-              {categories.map((c) => (
-                <FilterChip key={c.name} label={c.name} color={c.color} active={false} onClick={() => openEditMod(c)} />
-              ))}
+            <Button variant="outline" size="sm" onClick={openAddMod}><PlusIcon /> Mod</Button>
+          </CardHeader>
+          <CardContent className="space-y-2 py-3">
+            {categories.length === 0 && tags.length === 0 && (
+              <p className="text-sm text-muted-foreground">Add a mod to start.</p>
+            )}
+            {/* Click su un chip = modifica la mod */}
+            {categories.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="w-10 text-xs text-muted-foreground">Mods</span>
+                {categories.map((c) => (
+                  <FilterChip key={c.name} label={c.name} color={c.color} active={false} onClick={() => openEditMod(c)} />
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <Card className="sticky top-0 z-20 w-full h-full">
+          <CardHeader className="flex items-center justify-between">
+            <div className="flex gap-4">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-blue-500/20">
+                <TagsIcon className="size-6" />
+              </div>
+              <CardTitle className="text-2xl">Tag</CardTitle>
             </div>
-          )}
-          {tags.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="w-10 text-xs text-muted-foreground">Tags</span>
-              {tags.map((t) => (
-                <FilterChip key={t.name} label={t.name} active={false} onClick={() => openEditTag(t)} />
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            <Button variant="outline" size="sm" onClick={openAddTag}><PlusIcon /> Tag</Button>
+          </CardHeader>
+          <CardContent className="space-y-2 py-3">
+            {categories.length === 0 && tags.length === 0 && (
+              <p className="text-sm text-muted-foreground">Add a tag to start.</p>
+            )}
+            {/* Click su un chip = modifica il tag */}
+            {tags.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="w-10 text-xs text-muted-foreground">Tags</span>
+                {tags.map((t) => (
+                  <FilterChip key={t.name} label={t.name} active={false} onClick={() => openEditTag(t)} />
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader>
@@ -418,113 +455,113 @@ function KeybindsBoard({ project }: { project: project }) {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Selettore mappe */}
-        <div className="flex flex-wrap items-center gap-2 border-b pb-3">
-          {maps.map((m, i) => {
-            const active = i === activeMap
-            return (
-              <div
-                key={i}
-                className={cn(
-                  "flex items-center gap-0.5 rounded-full border px-1 transition-colors",
-                  active ? "border-transparent bg-primary text-primary-foreground" : "border-border"
-                )}
-              >
-                <button type="button" onClick={() => setActiveMap(i)} className="flex items-center gap-1.5 py-1 pl-2 text-sm font-medium">
-                  <MapIcon className="size-3.5" /> {m.name}
-                </button>
-                {active && (
-                  <>
-                    <button type="button" onClick={() => openEditMap(i)} className="rounded-full p-0.5 hover:bg-black/10" aria-label="Edit map">
-                      <PencilIcon className="size-3" />
-                    </button>
-                    <button type="button" onClick={() => removeMap(i)} className="rounded-full p-0.5 hover:bg-black/10" aria-label="Remove map">
-                      <XIcon className="size-3.5" />
-                    </button>
-                  </>
-                )}
-              </div>
-            )
-          })}
-          <Button variant="ghost" size="sm" onClick={openAddMap}><PlusIcon /> Map</Button>
-        </div>
-
-        {!current ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-            <MapIcon className="size-10 text-muted-foreground" />
-            <p className="text-muted-foreground">No keybind maps yet.</p>
-            <Button variant="outline" onClick={openAddMap}><PlusIcon /> Add map</Button>
+          <div className="flex flex-wrap items-center gap-2 border-b pb-3">
+            {maps.map((m, i) => {
+              const active = i === activeMap
+              return (
+                <div
+                  key={i}
+                  className={cn(
+                    "flex items-center gap-0.5 rounded-full border px-1 transition-colors",
+                    active ? "border-transparent bg-primary text-primary-foreground" : "border-border"
+                  )}
+                >
+                  <button type="button" onClick={() => setActiveMap(i)} className="flex items-center gap-1.5 py-1 pl-2 text-sm font-medium">
+                    <MapIcon className="size-3.5" /> {m.name}
+                  </button>
+                  {active && (
+                    <>
+                      <button type="button" onClick={() => openEditMap(i)} className="rounded-full p-0.5 hover:bg-black/10" aria-label="Edit map">
+                        <PencilIcon className="size-3" />
+                      </button>
+                      <button type="button" onClick={() => removeMap(i)} className="rounded-full p-0.5 hover:bg-black/10" aria-label="Remove map">
+                        <XIcon className="size-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              )
+            })}
+            <Button variant="ghost" size="sm" onClick={openAddMap}><PlusIcon /> Map</Button>
           </div>
-        ) : (
-          <>
-            {/* Filtri per la tastiera: ricerca azione + Tag (select) + Mod (chip) */}
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="relative min-w-48 flex-1 max-w-xs">
-                  <SearchIcon className="absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    placeholder="Search action..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="h-8 pl-8"
-                  />
+
+          {!current ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+              <MapIcon className="size-10 text-muted-foreground" />
+              <p className="text-muted-foreground">No keybind maps yet.</p>
+              <Button variant="outline" onClick={openAddMap}><PlusIcon /> Add map</Button>
+            </div>
+          ) : (
+            <>
+              {/* Filtri per la tastiera: ricerca azione + Tag (select) + Mod (chip) */}
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative min-w-48 flex-1 max-w-xs">
+                    <SearchIcon className="absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder="Search action..."
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="h-8 pl-8"
+                    />
+                  </div>
+                  {tags.length > 0 && (
+                    <Select value={tagFilter} onValueChange={setTagFilter}>
+                      <SelectTrigger className="h-8 w-44">
+                        <SelectValue placeholder="All tags" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All tags</SelectItem>
+                        {tags.map((t) => (
+                          <SelectItem key={t.name} value={t.name}>{t.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
-                {tags.length > 0 && (
-                  <Select value={tagFilter} onValueChange={setTagFilter}>
-                    <SelectTrigger className="h-8 w-44">
-                      <SelectValue placeholder="All tags" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All tags</SelectItem>
-                      {tags.map((t) => (
-                        <SelectItem key={t.name} value={t.name}>{t.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                {categories.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="w-10 text-xs text-muted-foreground">Mods</span>
+                    <FilterChip label="All" active={modFilter === "all"} onClick={() => setModFilter("all")} />
+                    {categories.map((c) => (
+                      <FilterChip
+                        key={c.name}
+                        label={c.name}
+                        color={c.color}
+                        active={modFilter === c.name}
+                        onClick={() => setModFilter(modFilter === c.name ? "all" : c.name)}
+                      />
+                    ))}
+                  </div>
                 )}
               </div>
-              {categories.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="w-10 text-xs text-muted-foreground">Mods</span>
-                  <FilterChip label="All" active={modFilter === "all"} onClick={() => setModFilter("all")} />
-                  {categories.map((c) => (
-                    <FilterChip
-                      key={c.name}
-                      label={c.name}
-                      color={c.color}
-                      active={modFilter === c.name}
-                      onClick={() => setModFilter(modFilter === c.name ? "all" : c.name)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
 
-            {/* Tastiera + Numpad + Mouse */}
-            <div className="overflow-x-auto">
-              <div className="flex w-fit items-start gap-6">
-                <div className="space-y-3">
-                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><KeyboardIcon className="size-4" /> Keyboard</p>
-                  <div className="rounded-xl border bg-muted/30 p-4">
-                    <div className="space-y-1">{MAIN_ROWS.map(renderRow)}</div>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <p className="text-xs text-muted-foreground">Numpad</p>
-                  <div className="rounded-xl border bg-muted/30 p-4">
-                    <div className="flex items-start gap-1">
-                      <div className="space-y-1">{NUMPAD_ROWS.map(renderRow)}</div>
-                      <div className="flex flex-col gap-1">{NUMPAD_SIDE.map(renderKey)}</div>
+              {/* Tastiera + Numpad + Mouse */}
+              <div className="overflow-x-auto">
+                <div className="flex w-fit items-start gap-6">
+                  <div className="space-y-3">
+                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><KeyboardIcon className="size-4" /> Keyboard</p>
+                    <div className="rounded-xl border bg-muted/30 p-4">
+                      <div className="space-y-1">{MAIN_ROWS.map(renderRow)}</div>
                     </div>
                   </div>
-                </div>
-                <div className="space-y-3">
-                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><MouseIcon className="size-4" /> Mouse</p>
-                  <div className="rounded-xl border bg-muted/30 p-4">{renderRow(MOUSE_KEYS, 0)}</div>
+                  <div className="space-y-3">
+                    <p className="text-xs text-muted-foreground">Numpad</p>
+                    <div className="rounded-xl border bg-muted/30 p-4">
+                      <div className="flex items-start gap-1">
+                        <div className="space-y-1">{NUMPAD_ROWS.map(renderRow)}</div>
+                        <div className="flex flex-col gap-1">{NUMPAD_SIDE.map(renderKey)}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><MouseIcon className="size-4" /> Mouse</p>
+                    <div className="rounded-xl border bg-muted/30 p-4">{renderRow(MOUSE_KEYS, 0)}</div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -542,16 +579,12 @@ function KeybindsBoard({ project }: { project: project }) {
             <div className="space-y-2">
               <Label>Mod</Label>
               {categories.length === 0 ? (
-                <div className="flex items-center gap-2">
-                  <p className="text-sm text-muted-foreground">No mods yet.</p>
-                  <Button type="button" variant="outline" size="sm" onClick={openAddMod}><PlusIcon /> Add</Button>
-                </div>
+                <p className="text-sm text-muted-foreground">No mods yet.</p>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {categories.map((c) => (
                     <FilterChip key={c.name} label={c.name} color={c.color} active={draftCategory === c.name} onClick={() => setDraftCategory(c.name)} />
                   ))}
-                  <Button type="button" variant="ghost" size="sm" onClick={openAddMod}><PlusIcon /> New</Button>
                 </div>
               )}
             </div>
@@ -591,11 +624,23 @@ function KeybindsBoard({ project }: { project: project }) {
               </Combobox>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="mod-color">Color</Label>
-              <div className="flex items-center gap-2">
-                <input id="mod-color" type="color" value={modColor} onChange={(e) => setModColor(e.target.value)} className="h-9 w-12 cursor-pointer rounded-md border bg-transparent" />
-                <span className="text-sm text-muted-foreground">{modColor}</span>
-              </div>
+              <Label>Color</Label>
+              <ColorPicker
+                defaultValue={modColor}
+                onChange={(v) => setModColor(typeof v === "string" ? v : String(v))}
+                format="hex"
+                className="h-auto w-full gap-3 rounded-lg border p-3"
+              >
+                <ColorPickerSelection className="h-32 rounded-md" />
+                <div className="flex items-center gap-2">
+                  <ColorPickerEyeDropper />
+                  <ColorPickerHue className="flex-1" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <ColorPickerOutput />
+                  <ColorPickerFormat />
+                </div>
+              </ColorPicker>
             </div>
             {tags.length > 0 && (
               <div className="space-y-2">

@@ -127,3 +127,23 @@
     @apply font-sans;
     }
 }
+/* Marcatori "dirty diff" nel gutter dell'editor Monaco (sezione Documents).
+   Barra verticale sottile a sinistra del numero di riga: verde = aggiunta,
+   blu = modificata; rosso (triangolo) = righe cancellate accanto a questa. */
+.dirty-line {
+  width: 3px !important;
+  margin-left: 3px;
+}
+.dirty-line-added {
+  background-color: #22c55e;
+}
+.dirty-line-modified {
+  background-color: #3b82f6;
+}
+.dirty-line-deleted {
+  width: 0 !important;
+  border-left: 4px solid #ef4444;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  margin-left: 3px;
+}

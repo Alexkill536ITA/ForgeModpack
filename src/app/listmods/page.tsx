@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { join } from "@tauri-apps/api/path"
-import { RefreshCcwIcon, PackageIcon, CircleCheckIcon, CircleSlashIcon } from "lucide-react"
+import { RefreshCcwIcon, PackageIcon, CircleCheckIcon, CircleSlashIcon, CircleXIcon } from "lucide-react"
 
 import { ProjectGate } from "../../components/project-gate"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card"
@@ -89,7 +89,7 @@ function SummaryCard({
 }) {
   return (
     <Card>
-      <CardContent className="flex items-center gap-3 py-4">
+      <CardContent className="flex items-center gap-3 px-4">
         <div className={cn("flex size-10 items-center justify-center rounded-lg bg-muted", className)}>
           {icon}
         </div>
@@ -180,6 +180,8 @@ function ModsList({ project }: { project: project }) {
       .map((id) => id.toLowerCase())
   )
 
+  const missing = mods.filter((m) => m.active && missingDependencies(m, installedIds).length > 0)
+
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-4">
@@ -199,6 +201,12 @@ function ModsList({ project }: { project: project }) {
           value={inactiveCount}
           icon={<CircleSlashIcon className="size-5 text-amber-500" />}
           className="bg-amber-500/10"
+        />
+        <SummaryCard
+          label="Missing dependencies"
+          value={missing.length}
+          icon={<CircleXIcon className="size-5 text-red-500" />}
+          className="bg-red-500/10"
         />
       </div>
 

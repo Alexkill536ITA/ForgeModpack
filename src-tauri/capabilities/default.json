@@ -2,60 +2,25 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": [
-    "main"
-  ],
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "opener:default",
-    {
-      "identifier": "fs:default",
-      "allow": [
-        "**"
-      ]
-    },
-    {
-      "identifier": "fs:allow-write",
-      "allow": [
-        "**"
-      ]
-    },
-    {
-      "identifier": "fs:allow-read",
-      "allow": [
-        "**"
-      ]
-    },
-    {
-      "identifier": "fs:allow-open",
-      "allow": [
-        "**"
-      ]
-    },
-    {
-      "identifier": "fs:allow-create",
-      "allow": [
-        "**"
-      ]
-    },
+    { "identifier": "fs:default", "allow": ["**"] },
+    { "identifier": "fs:allow-write", "allow": ["**"] },
+    { "identifier": "fs:allow-write-text-file", "allow": ["**"] },
+    { "identifier": "fs:allow-read-text-file", "allow": ["**"] },
+    { "identifier": "fs:allow-read", "allow": ["**"] },
+    { "identifier": "fs:allow-open", "allow": ["**"] },
+    { "identifier": "fs:allow-create", "allow": ["**"] },
     {
       "identifier": "http:default",
       "allow": [
-        {
-          "url": "https://piston-meta.mojang.com/**"
-        },
-        {
-          "url": "https://files.minecraftforge.net/**"
-        },
-        {
-          "url": "https://maven.neoforged.net/**"
-        },
-        {
-          "url": "https://meta.fabricmc.net/**"
-        },
-        {
-          "url": "https://meta.quiltmc.org/**"
-        }
+        { "url": "https://piston-meta.mojang.com/**" },
+        { "url": "https://files.minecraftforge.net/**" },
+        { "url": "https://maven.neoforged.net/**" },
+        { "url": "https://meta.fabricmc.net/**" },
+        { "url": "https://meta.quiltmc.org/**" }
       ]
     },
     "sql:default",

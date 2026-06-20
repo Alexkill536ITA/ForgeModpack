@@ -1,4 +1,5 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+mod files;
 mod mods;
 
 use tauri_plugin_sql::{Migration, MigrationKind};
@@ -30,7 +31,11 @@ pub fn run() {
         )
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, mods::scan_mods])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            mods::scan_mods,
+            files::read_dir_tree
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

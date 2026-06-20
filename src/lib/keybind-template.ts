@@ -2,7 +2,7 @@
 // binding di base, mappati sugli id dei tasti definiti in keyboard-layout.ts.
 // Categorie incluse: solo UI, Movimento, Inventario.
 
-import { keybind, keybindCategory } from "../model/models"
+import { keybind, keybindCategory, keybindTag } from "../model/models"
 
 const CAT = {
     ui: { name: "UI", color: "#ff6b6b" },
@@ -11,6 +11,33 @@ const CAT = {
 } as const
 
 type CatKey = keyof typeof CAT
+
+const TAG = {
+    movimento: "Movimento",
+    inventario: "Inventario",
+    tecnologia: "Tecnologia",
+    magia: "Magia",
+    avventura: "Avventura",
+    equipaggiamento: "Equipaggiamento",
+    creature: "Creature",
+    generazioneMondo: "Generazione Mondo",
+    trasporto: "Trasporto",
+    agricoltura: "Agricoltura",
+    cibo: "Cibo",
+    decorazione: "Decorazione",
+    cosmetica: "Cosmetica",
+    redstone: "Redstone",
+    ottimizzazione: "Ottimizzazione",
+    utility: "Utility",
+    mappe: "Mappe",
+    server: "Server",
+    economia: "Economia",
+    librerie: "Librerie",
+    minigioco: "Minigioco",
+    cursed: "Cursed",
+} as const
+
+type TagKey = keyof typeof TAG
 
 // [id tasto, azione, categoria]
 const TEMPLATE: [string, string, CatKey][] = [
@@ -68,5 +95,11 @@ export function defaultCategories(): keybindCategory[] {
         name: CAT[cat].name,
         color: CAT[cat].color,
         tags: [],
+    }))
+}
+
+export function defaultTags(): keybindTag[] {
+    return (Object.keys(TAG) as TagKey[]).map((tag) => ({
+        name: TAG[tag]
     }))
 }

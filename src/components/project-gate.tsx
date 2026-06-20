@@ -8,7 +8,7 @@ import { Button } from "./ui/button"
 import { Separator } from "./ui/separator"
 import { useAppDispatch, useAppSelector } from "../redux/hooks"
 import { loadProject } from "../redux/project-slice"
-import { modloaderTypes, project } from "../model/models"
+import { defaultJvmSettings, modloaderTypes, project } from "../model/models"
 
 /**
  * Blocco mostrato quando nessun progetto è caricato: permette di crearne uno
@@ -29,6 +29,7 @@ function NoProjectSelected() {
       keybindMaps: [],
       keybindCategories: [],
       keybindTags: [],
+      jvm: defaultJvmSettings(),
       configs: { workpath },
     }))
   }
@@ -51,6 +52,7 @@ function NoProjectSelected() {
       keybindMaps: parsed.keybindMaps ?? [],
       keybindCategories: parsed.keybindCategories ?? [],
       keybindTags: parsed.keybindTags ?? [],
+      jvm: parsed.jvm ?? defaultJvmSettings(),
     }))
   }
 

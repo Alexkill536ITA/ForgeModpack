@@ -20,7 +20,7 @@ import { modloaderTypes, toastStyles } from "../model/models";
 import { useAppDispatch, useAppSelector } from "../redux/hooks";
 import { updateProject } from "../redux/project-slice";
 import { setByPath } from "../lib/json-data";
-import { RefreshCcwIcon } from "lucide-react";
+import { PackageOpenIcon, RefreshCcwIcon, SquareKanbanIcon, WallpaperIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner"
 import { VersionEntry } from "../model/manifest-mc-ml";
@@ -170,7 +170,10 @@ export default function Page() {
           <div className="w-full flex gap-4">
             {/* Project Metadata  */}
             <Card className="w-1/2">
-              <CardHeader>
+              <CardHeader className="flex gap-3 items-center">
+                <div className="flex size-10 items-center justify-center rounded-lg bg-muted">
+                  <SquareKanbanIcon className="size-6" />
+                </div>
                 <CardTitle className="text-2xl">Details</CardTitle>
               </CardHeader>
               <CardContent className="h-full flex flex-col space-y-2">
@@ -193,7 +196,10 @@ export default function Page() {
 
             {/* Mod Loader  */}
             <Card className="w-1/2">
-              <CardHeader className="flex">
+              <CardHeader className="flex gap-3 items-center">
+                <div className="flex size-10 items-center justify-center rounded-lg bg-muted">
+                  <PackageOpenIcon className="size-6" />
+                </div>
                 <CardTitle className="text-2xl">Dependencies</CardTitle>
                 <Button variant={"ghost"} onClick={updateManifest} disabled={updatingManifest}>
                   <RefreshCcwIcon className={cn(updatingManifest && "ease-in-out animate-spin")} />
@@ -293,7 +299,10 @@ export default function Page() {
 
           {/* Project Attributes  */}
           <Card className="h-[39vh]">
-            <CardHeader>
+            <CardHeader className="flex gap-3 items-center">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-muted">
+                <WallpaperIcon className="size-6" />
+              </div>
               <CardTitle className="text-2xl">Assets</CardTitle>
             </CardHeader>
             <CardContent className="felx flex-col space-y-2">

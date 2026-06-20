@@ -22,10 +22,24 @@ export type project = {
     keybindMaps: keybindMap[],
     keybindCategories: keybindCategory[],
     keybindTags: keybindTag[],
+    jvm: jvmSettings,
     configs: {
         workpath: string
     },
 };
+
+// Tipo di garbage collector selezionabile per gli argomenti JVM.
+export type gcType = "g1" | "zgc" | "shen";
+
+// Impostazioni JVM del modpack (allocazione RAM + GC), salvate nel project.
+export type jvmSettings = {
+    ramGb: number,
+    gc: gcType,
+};
+
+// Valori di default per un nuovo progetto / per i progetti salvati prima
+// dell'introduzione del campo `jvm`.
+export const defaultJvmSettings = (): jvmSettings => ({ ramGb: 4, gc: "g1" });
 
 export type mod = {
     active: boolean,

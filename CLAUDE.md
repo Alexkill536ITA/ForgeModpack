@@ -30,7 +30,7 @@ Usa **pnpm** (non npm/yarn). Per testare le feature reali serve `tauri:dev`: le 
 - **Next.js 16 App Router**, `output: "export"` (SSG puro, niente server/route handlers).
   Le pagine sono `"use client"`; immagini `unoptimized`.
 - **Redux Toolkit** per lo state globale ([`src/redux`](src/redux)): slice `project`,
-  `minecraftManifest`, `modLoaderManifest`. Accesso via `useAppSelector`/`useAppDispatch`
+  `minecraftManifest`, `modLoaderManifest`, `documents` (file aperto nell'editor). Accesso via `useAppSelector`/`useAppDispatch`
   ([`hooks.ts`](src/redux/hooks.ts)), mai `useSelector` grezzo.
 - **shadcn/ui** ([`src/components/ui`](src/components/ui)) + **Tailwind v4** (config in
   [`globals.css`](src/app/globals.css), tema `dark` forzato nel layout). Non modificare a
@@ -74,7 +74,7 @@ Usa **pnpm** (non npm/yarn). Per testare le feature reali serve `tauri:dev`: le 
   gestiscono più save/unsaved localmente**: basta dispatchare `updateProject`.
 - **Navigazione**: le voci della sidebar usano `next/link` ([`nav-main.tsx`](src/components/nav-main.tsx)
   evidenzia la voce attiva via `usePathname`). Le route sono `/` (Dashboard/home),
-  `/listmods`, `/keybinds`, `/analytics`.
+  `/listmods`, `/keybinds`, `/jvm`, `/documents`, `/analytics`.
 - **Guardia progetto**: [`project-gate.tsx`](src/components/project-gate.tsx) esporta
   `<ProjectGate>`: se non c'è un progetto in Redux mostra il blocco create/open, altrimenti
   rende i figli passando il progetto non-null via **render prop**
@@ -95,6 +95,17 @@ Usa **pnpm** (non npm/yarn). Per testare le feature reali serve `tauri:dev`: le 
   molte dipendenze sono bundlate nel jar). `mandatory` considera sia `mandatory=` (Forge classico)
   sia `type="required"|"optional"` (formato nuovo). I comandi applicativi non richiedono permessi
   capability (a differenza dei comandi dei plugin). La scansione usa `std::fs`, non plugin-fs.
+- **File explorer (Rust)**: [`src-tauri/src/files.rs`](src-tauri/src/files.rs) espone `read_dir_tree(dir)`
+  che legge **ricorsivamente** una directory e ritorna un albero `FileNode[]` (`name`, `path`
+  assoluto, `isDir`, `children`), cartelle prima dei file e in ordine alfabetico; i symlink non
+  vengono seguiti come cartelle (no cicli). Errore se la dir non esiste (il frontend lo usa per
+  saltare le cartelle assenti). Il **contenuto** dei file si legge/scrive lato frontend con
+  `@tauri-apps/plugin-fs` (`readTextFile`/`writeTextFile`).
+- **Editor di codice (Monaco)**: la sezione Documents usa `@monaco-editor/react`. L'app gira
+  **offline**, quindi Monaco NON va caricato dalla CDN: [`scripts/copy-monaco.mjs`](scripts/copy-monaco.mjs)
+  copia `node_modules/monaco-editor/min/vs` in `public/monaco/vs` (gitignored) ed è incatenato in
+  `pnpm dev`/`pnpm build`; [`monaco-setup.ts`](src/lib/monaco-setup.ts) punta il loader a
+  `/monaco/vs`. Il linguaggio si deduce dall'estensione in [`file-language.ts`](src/lib/file-language.ts).
 
 ## Stato del progetto
 
@@ -129,6 +140,16 @@ Usa **pnpm** (non npm/yarn). Per testare le feature reali serve `tauri:dev`: le 
     (Mods + Tags) che combinano il dimming. Il binding ha solo `category` (la mod); i tag
     vengono dalla mod. Persiste in `project.keybindCategories` / `project.keybindTags` /
     `project.keybindMaps` via `updateProject` (→ `unsaved` → SaveBar).
+  - **Documents** — l'**albero dei file** di `config`/`kubejs` (lette dalla `workpath` via
+    `read_dir_tree`) vive **nella sidebar** ([`nav-files.tsx`](src/components/nav-files.tsx), che usa
+    [`file-tree.tsx`](src/components/documents/file-tree.tsx)). Il file selezionato è in Redux
+    ([`documents-slice.ts`](src/redux/documents-slice.ts), `openDocument`/`closeDocument`), così
+    sidebar ed editor sono disaccoppiati. La pagina ([`src/app/documents/page.tsx`](src/app/documents/page.tsx))
+    rende **solo l'editor Monaco** ([`code-editor.tsx`](src/components/documents/code-editor.tsx))
+    del file aperto: click su un file nella sidebar → `router.push("/documents")` + `readTextFile`;
+    Save (bottone o Ctrl/Cmd+S) → `writeTextFile`. **L'editor ha un proprio stato "dirty"** (draft vs
+    contenuto su disco), **separato** dal `project.json` e dalla `<SaveBar />`: i file di config non
+    vivono nel project. Le cartelle assenti vengono saltate.
 
 ## Gotcha
 
