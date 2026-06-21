@@ -20,7 +20,7 @@ export const projectSlice = createSlice({
     initialState,
     reducers: {
         // Carica/crea un progetto: stato "pulito", nessuna modifica da salvare.
-        loadProject: (state, action: PayloadAction<project>) => {
+        loadProject: (state, action: PayloadAction<project | null>) => {
             state.project = action.payload
             state.unsaved = false
         },

@@ -8,6 +8,7 @@ const CAT = {
     ui: { name: "UI", color: "#ff6b6b" },
     move: { name: "Movimento", color: "#417505" },
     inv: { name: "Inventario", color: "#8c582a" },
+    mp: { name: "Multiplayer", color: "#4eccc4" },
 } as const
 
 type CatKey = keyof typeof CAT
@@ -82,6 +83,10 @@ const TEMPLATE: [string, string, CatKey][] = [
     ["b", "Backpack", "inv"],
     ["shiftright", "Stack items", "inv"],
     ["delete", "Del item", "inv"],
+
+    // Multiplayer
+    ["t", "Chat", "mp"],
+    ["tab", "Player list", "mp"],
 ]
 
 /** Keybind di default per una nuova mappa. */

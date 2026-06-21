@@ -31,10 +31,7 @@ fn read_tree(dir: &Path) -> Result<Vec<FileNode>, String> {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
         // file_type() non segue i symlink: una cartella-symlink risulta non-dir.
-        let is_dir = entry
-            .file_type()
-            .map(|t| t.is_dir())
-            .unwrap_or(false);
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
 
         let children = if is_dir {
             Some(read_tree(&path).unwrap_or_default())

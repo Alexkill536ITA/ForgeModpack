@@ -83,7 +83,9 @@ fn forge_dep_mandatory(dep: &toml::Value) -> bool {
     if let Some(kind) = dep.get("type").and_then(|v| v.as_str()) {
         return kind.eq_ignore_ascii_case("required");
     }
-    dep.get("mandatory").and_then(|v| v.as_bool()).unwrap_or(true)
+    dep.get("mandatory")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
 }
 
 /// Parsing dei mods.toml di Forge/NeoForge (stesso schema).
@@ -167,7 +169,11 @@ fn parse_forge(
 fn parse_fabric(filename: &str, json_str: &str) -> ScannedMod {
     let v: JsonValue = serde_json::from_str(json_str).unwrap_or(JsonValue::Null);
 
-    let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let id = v
+        .get("id")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
     let name = v
         .get("name")
         .and_then(|x| x.as_str())
@@ -192,7 +198,9 @@ fn parse_fabric(filename: &str, json_str: &str) -> ScannedMod {
             arr.iter()
                 .filter_map(|x| {
                     x.as_str().map(|s| s.to_string()).or_else(|| {
-                        x.get("name").and_then(|n| n.as_str()).map(|s| s.to_string())
+                        x.get("name")
+                            .and_then(|n| n.as_str())
+                            .map(|s| s.to_string())
                     })
                 })
                 .collect()
@@ -282,7 +290,10 @@ fn parse_quilt(filename: &str, json_str: &str) -> ScannedMod {
                         .and_then(|x| x.as_str())
                         .unwrap_or("*")
                         .to_string();
-                    let optional = dep.get("optional").and_then(|x| x.as_bool()).unwrap_or(false);
+                    let optional = dep
+                        .get("optional")
+                        .and_then(|x| x.as_bool())
+                        .unwrap_or(false);
                     Some(ModDependency {
                         name,
                         version,
@@ -354,7 +365,10 @@ fn provided_from_quilt(json_str: &str) -> Vec<String> {
     if let Some(id) = loader.and_then(|q| q.get("id")).and_then(|x| x.as_str()) {
         ids.push(id.to_string());
     }
-    if let Some(arr) = loader.and_then(|q| q.get("provides")).and_then(|x| x.as_array()) {
+    if let Some(arr) = loader
+        .and_then(|q| q.get("provides"))
+        .and_then(|x| x.as_array())
+    {
         for x in arr {
             if let Some(s) = x.as_str() {
                 ids.push(s.to_string());
