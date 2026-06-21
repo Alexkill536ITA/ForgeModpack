@@ -202,6 +202,59 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     await exit(0)
   }
 
+  // Le azioni vengono ricreate ad ogni render (chiudono su projectState/projectUnsaved
+  // aggiornati). Le teniamo in un ref così il listener globale può restare montato
+  // una sola volta invece di essere ri-registrato ad ogni render.
+  const actionsRef = React.useRef({ newProject, openProject, closeProject, saveProject, saveAsProject, exitApp })
+  React.useEffect(() => {
+    actionsRef.current = { newProject, openProject, closeProject, saveProject, saveAsProject, exitApp }
+  })
+
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isShortcutModifierPressed = event.ctrlKey || event.metaKey
+      if (!isShortcutModifierPressed) return
+
+      // Evita di intercettare le scorciatoie mentre l'utente sta scrivendo
+      // in un campo di testo (es. nome progetto).
+      const target = event.target as HTMLElement | null
+      const isTypingContext = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable
+      if (isTypingContext) return
+
+      switch (event.key.toLowerCase()) {
+        case "n":
+          event.preventDefault()
+          actionsRef.current.newProject()
+          break
+        case "o":
+          event.preventDefault()
+          actionsRef.current.openProject()
+          break
+        case "w":
+          event.preventDefault()
+          actionsRef.current.closeProject()
+          break
+        case "s":
+          event.preventDefault()
+          if (event.shiftKey) {
+            actionsRef.current.saveAsProject()
+          } else {
+            actionsRef.current.saveProject()
+          }
+          break
+        case "q":
+          event.preventDefault()
+          actionsRef.current.exitApp()
+          break
+        default:
+          break
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [])
+
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader>
