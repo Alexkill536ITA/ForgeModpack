@@ -27,7 +27,7 @@ import { useAppDispatch, useAppSelector } from "../redux/hooks"
 import { loadProject, markSaved, updateProject } from "../redux/project-slice"
 import { open, save } from "@tauri-apps/plugin-dialog"
 import { defaultJvmSettings, modloaderTypes, project, toastStyles } from "../model/models"
-import { create, readTextFile } from "@tauri-apps/plugin-fs"
+import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs"
 import { join, dirname, basename } from "@tauri-apps/api/path"
 import { toast } from "sonner"
 import { useConfirm } from "../providers/confirm-dialog-provider"
@@ -52,14 +52,15 @@ function notifyError(message: string, error?: unknown) {
   toast.error(message, { position: "top-right", style: toastStyles.destructive })
 }
 
-async function writeProjectFile(filePath: string, data: project) {
-  const file = await create(filePath)
+async function writeProjectFile(filePath: string, data: project): Promise<void> {
   try {
-    await file.write(new TextEncoder().encode(JSON.stringify(data, null, 2)))
-  } finally {
-    await file.close()
+    const content = JSON.stringify(data, null, 2)
+    await writeTextFile(filePath, content)
+  } catch (error) {
+    throw new Error(`Failed to write file: ${filePath}`, { cause: error })
   }
 }
+
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { confirm } = useConfirm()
@@ -80,7 +81,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       type: "cancel/continue/save",
       title: "Warning Unsaved Changes",
       message: "You have unsaved changes. Do you want to save them?",
-      whitout: true,
+      without: true,
     })
 
     if (result === true) {

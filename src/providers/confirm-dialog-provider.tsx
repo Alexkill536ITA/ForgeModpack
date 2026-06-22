@@ -8,7 +8,7 @@ interface ConfirmOptions {
     type?: ConfirmDialogType
     title?: string
     message?: string
-    whitout?: boolean
+    without?: boolean
 }
 
 interface ConfirmContextValue {
@@ -129,7 +129,7 @@ export const ConfirmProvider = ({ children }: { children: ReactNode }) => {
                             Cancel
                         </AlertDialogCancel>
                         <AlertDialogAction onClick={() => close("continue")}>
-                            {state.options?.whitout ? "Whitout Save" : "Continue"}
+                            {state.options?.without ? "Without Save" : "Continue"}
                         </AlertDialogAction>
                         <AlertDialogAction onClick={() => close(true)}>
                             Save
