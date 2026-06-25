@@ -10,11 +10,15 @@ import {
   FolderIcon,
   FolderOpenIcon,
   PlusIcon,
+  Trash2Icon,
+  PencilIcon,
 } from "lucide-react"
-import { exists, writeTextFile } from "@tauri-apps/plugin-fs"
+import { exists, writeTextFile, remove, rename } from "@tauri-apps/plugin-fs"
 import { join } from "@tauri-apps/api/path"
 
 import { cn } from "../../lib/utils"
+import { Button } from "../ui/button"
+import { useConfirm } from "@/src/providers/confirm-dialog-provider"
 
 // Nodo dell'albero, rispecchia la struct `FileNode` del comando Rust `read_dir_tree`.
 export interface FileNode {
@@ -22,6 +26,7 @@ export interface FileNode {
   path: string
   isDir: boolean
   children?: FileNode[] | null
+  parent?: FileNode | null
 }
 
 /** Icona del file in base all'estensione (solo estetica). */
@@ -31,19 +36,6 @@ function fileIcon(name: string) {
   if (["js", "mjs", "cjs", "ts", "zs"].includes(ext)) return FileCodeIcon
   if (["toml", "cfg", "conf", "ini", "properties"].includes(ext)) return FileCogIcon
   return FileIcon
-}
-
-/**
- * Unisce i figli "reali" (arrivati da `roots`) con quelli creati localmente
- * non ancora confermati da un refetch del backend. Deduplica per `path`: se
- * il genitore alla fine ricarica l'albero e il file reale appare, quello
- * "ottimistico" smette automaticamente di essere mostrato due volte.
- */
-function mergeChildren(real: FileNode[] | null | undefined, extra: FileNode[] | undefined) {
-  if (!extra || extra.length === 0) return real ?? []
-  const realPaths = new Set((real ?? []).map((c) => c.path))
-  const onlyNew = extra.filter((c) => !realPaths.has(c.path))
-  return [...(real ?? []), ...onlyNew]
 }
 
 /** Riga di input inline per il nome del nuovo file, allineata come una voce dell'albero. */
@@ -101,23 +93,29 @@ function NewFileRow({
 function TreeNode({
   node,
   depth,
+  parentPath,
   activePath,
   onSelect,
   onFileCreated,
-  createdChildren,
-  addCreatedChild,
+  onFileRenamed,
+  onFileDeleted,
 }: {
   node: FileNode
   depth: number
+  /** Path della cartella che contiene direttamente questo nodo (null solo per le root). */
+  parentPath: string | null
   activePath: string | null
   onSelect: (node: FileNode) => void
-  onFileCreated?: (node: FileNode, parent: FileNode) => void
-  createdChildren: Record<string, FileNode[]>
-  addCreatedChild: (parentPath: string, node: FileNode) => void
+  onFileCreated: (node: FileNode, parentPath: string) => void
+  onFileRenamed: (oldNode: FileNode, newNode: FileNode) => void
+  onFileDeleted: (node: FileNode) => void
 }) {
   const [open, setOpen] = useState(depth === 0)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Hook in cima al componente: non deve dipendere da rami condizionali
+  // (node.isDir), altrimenti viola le regole degli hook di React.
+  const { confirm } = useConfirm()
 
   // Rientro proporzionale alla profondità (la riga parte sempre dal bordo).
   const pad = { paddingLeft: `${depth * 0.75 + 0.5}rem` }
@@ -134,11 +132,11 @@ function TreeNode({
 
       await writeTextFile(fullPath, "")
 
-      const newNode: FileNode = { name, path: fullPath, isDir: false }
-      // Aggiornamento ottimistico: il file appare subito nell'albero anche
-      // se il genitore non ricarica `roots`.
-      addCreatedChild(node.path, newNode)
-      onFileCreated?.(newNode, node)
+      const newNode: FileNode = { name, path: fullPath, isDir: false, parent: node }
+      // Il genitore (FileTree -> NavFiles) inserisce subito il nodo nella sua
+      // unica fonte di verità (`roots`): l'albero si aggiorna senza dover
+      // aspettare un refetch dal backend.
+      onFileCreated(newNode, node.path)
       onSelect(newNode)
       setCreating(false)
     } catch (err) {
@@ -149,24 +147,26 @@ function TreeNode({
 
   if (node.isDir) {
     const Folder = open ? FolderOpenIcon : FolderIcon
-    const children = mergeChildren(node.children, createdChildren[node.path])
+    const children = node.children ?? []
 
     return (
       <li>
         <div className="group flex w-full items-center">
-          <button
+          <Button
+            variant={"ghost"}
             type="button"
             onClick={() => setOpen((v) => !v)}
             style={pad}
-            className="flex flex-1 items-center gap-1.5 rounded-sm py-1 pr-1 text-sm hover:bg-accent"
+            className="flex flex-1 items-center gap-1.5 rounded-sm py-1 pr-1 text-sm justify-start hover:bg-accent"
           >
             <ChevronRightIcon
               className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
             />
             <Folder className="size-4 shrink-0 text-sky-400" />
             <span className="truncate" title={node.name}>{node.name}</span>
-          </button>
-          <button
+          </Button>
+          <Button
+            variant={"ghost"}
             type="button"
             title="Nuovo file"
             onClick={(e) => {
@@ -174,10 +174,10 @@ function TreeNode({
               setOpen(true)
               setCreating(true)
             }}
-            className="mr-1 shrink-0 rounded-sm p-0.5 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+            className="mr-1 shrink-0 rounded-sm p-1 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
           >
             <PlusIcon className="size-3.5" />
-          </button>
+          </Button>
         </div>
 
         {error && (
@@ -200,11 +200,12 @@ function TreeNode({
                 key={child.path}
                 node={child}
                 depth={depth + 1}
+                parentPath={node.path}
                 activePath={activePath}
                 onSelect={onSelect}
                 onFileCreated={onFileCreated}
-                createdChildren={createdChildren}
-                addCreatedChild={addCreatedChild}
+                onFileRenamed={onFileRenamed}
+                onFileDeleted={onFileDeleted}
               />
             ))}
           </ul>
@@ -215,22 +216,107 @@ function TreeNode({
 
   const Icon = fileIcon(node.name)
   const active = activePath === node.path
+
+  async function handleRename(newName: string) {
+    setError(null)
+
+    if (!parentPath) {
+      // Non dovrebbe succedere: solo i file (mai le root, che sono cartelle)
+      // possono essere rinominati, e ogni file ha sempre una cartella padre.
+      console.error("Rinomina fallita: percorso padre sconosciuto")
+      setError("Rinomina fallita")
+      return
+    }
+
+    try {
+      // Niente più parsing manuale del path (che assumeva il backslash di
+      // Windows): si usa l'utility di path di Tauri, cross-platform.
+      const fullPath = await join(parentPath, newName)
+
+      if (fullPath !== node.path && (await exists(fullPath))) {
+        setError("Esiste già un file con questo nome")
+        return
+      }
+
+      await rename(node.path, fullPath)
+
+      const newNode: FileNode = { ...node, name: newName, path: fullPath }
+
+      // Il genitore sostituisce direttamente il vecchio nodo col nuovo:
+      // nessun reload necessario, nessuna race tra rimozione e refetch.
+      onFileRenamed(node, newNode)
+      onSelect(newNode)
+    } catch (err) {
+      console.error("Rinomina fallita:", err)
+      setError("Rinomina fallita")
+    }
+  }
+
+  async function handleDelete() {
+    const res = await confirm({ type: "delete", title: `Are you sure you want to delete ${node.name}` })
+    if (!res) return
+    try {
+      await remove(node.path)
+      onFileDeleted(node)
+    } catch (err) {
+      console.error("Eliminazione fallita:", err)
+      alert("Impossibile eliminare il file")
+    }
+  }
+
   return (
     <li>
-      <button
-        type="button"
-        onClick={() => onSelect(node)}
-        style={pad}
-        className={cn(
-          "flex w-full items-center gap-1.5 rounded-sm py-1 pr-2 text-sm hover:bg-accent",
-          active && "bg-accent font-medium"
-        )}
-      >
-        {/* Spaziatore largo come il chevron delle cartelle, per allineare i nomi. */}
-        <span className="size-3.5 shrink-0" />
-        <Icon className="size-4 shrink-0 text-muted-foreground" />
-        <span className="truncate" title={node.name}>{node.name}</span>
-      </button>
+      <div className="group flex w-full items-center">
+        <Button
+          variant={"ghost"}
+          type="button"
+          onClick={() => onSelect(node)}
+          style={pad}
+          className={cn(
+            "flex flex-1 items-center gap-1.5 rounded-sm py-1 pr-2 text-sm justify-start hover:bg-accent",
+            active && "bg-accent font-medium"
+          )}
+        >
+          {/* Spaziatore largo come il chevron delle cartelle, per allineare i nomi. */}
+          <span className="size-3.5 shrink-0" />
+          <Icon className="size-4 shrink-0 text-muted-foreground" />
+          <span className="truncate flex-1 text-start" title={node.name}>
+            {node.name}
+          </span>
+        </Button>
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+          <Button
+            variant={"ghost"}
+            type="button"
+            title="Rinomina"
+            onClick={(e) => {
+              e.stopPropagation()
+              const newName = prompt("Nuovo nome per il file:", node.name)
+              if (newName && newName !== node.name) void handleRename(newName)
+            }}
+            className="rounded-sm p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:opacity-100"
+          >
+            <PencilIcon className="size-3.5" />
+          </Button>
+          <Button
+            variant={"ghost"}
+            type="button"
+            title="Elimina"
+            onClick={(e) => {
+              e.stopPropagation()
+              void handleDelete()
+            }}
+            className="rounded-sm p-1 text-muted-foreground hover:bg-destructive/30! hover:text-foreground focus-visible:opacity-100"
+          >
+            <Trash2Icon className="size-3.5" />
+          </Button>
+        </div>
+      </div>
+      {error && (
+        <p style={pad} className="py-0.5 text-xs text-destructive">
+          {error}
+        </p>
+      )}
     </li>
   )
 }
@@ -238,31 +324,30 @@ function TreeNode({
 /**
  * Albero di file espandibile. Le `roots` sono le cartelle radice (es. `config`,
  * `kubejs`); ognuna è renderizzata come nodo cartella aperto di default.
+ *
+ * Creazione, rename ed eliminazione sono completamente ottimistici: ogni
+ * callback riceve già il nodo pronto (o il vecchio nodo da rimuovere) e tocca
+ * a chi possiede `roots` (tipicamente NavFiles) inserirlo/sostituirlo/
+ * rimuoverlo nell'albero, senza dover aspettare un refetch dal backend.
  */
 export function FileTree({
   roots,
   activePath,
   onSelect,
   onFileCreated,
+  onFileRenamed,
+  onFileDeleted,
 }: {
   roots: FileNode[]
   activePath: string | null
   onSelect: (node: FileNode) => void
-  /** Chiamato dopo aver creato un file, con il nuovo nodo e la cartella padre — usalo se vuoi anche ricaricare l'albero dal backend. */
-  onFileCreated?: (node: FileNode, parent: FileNode) => void
+  /** Chiamato dopo aver creato un file: nuovo nodo + path della cartella padre. */
+  onFileCreated: (node: FileNode, parentPath: string) => void
+  /** Chiamato dopo aver rinominato un file: vecchio nodo + nuovo nodo. */
+  onFileRenamed: (oldNode: FileNode, newNode: FileNode) => void
+  /** Chiamato dopo aver eliminato un file. */
+  onFileDeleted: (node: FileNode) => void
 }) {
-  // Mappa path-cartella -> file creati localmente non ancora presenti in `roots`.
-  // Senza questo stato il file scritto su disco non comparirebbe nell'albero
-  // finché `roots` non viene ricalcolato e passato di nuovo da fuori.
-  const [createdChildren, setCreatedChildren] = useState<Record<string, FileNode[]>>({})
-
-  function addCreatedChild(parentPath: string, node: FileNode) {
-    setCreatedChildren((prev) => ({
-      ...prev,
-      [parentPath]: [...(prev[parentPath] ?? []), node],
-    }))
-  }
-
   return (
     <ul className="select-none">
       {roots.map((root) => (
@@ -270,11 +355,12 @@ export function FileTree({
           key={root.path}
           node={root}
           depth={0}
+          parentPath={null}
           activePath={activePath}
           onSelect={onSelect}
           onFileCreated={onFileCreated}
-          createdChildren={createdChildren}
-          addCreatedChild={addCreatedChild}
+          onFileRenamed={onFileRenamed}
+          onFileDeleted={onFileDeleted}
         />
       ))}
     </ul>

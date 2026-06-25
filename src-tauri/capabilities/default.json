@@ -33,6 +33,18 @@
       ]
     },
     {
+      "identifier": "fs:allow-rename",
+      "allow": [
+        "**"
+      ]
+    },
+    {
+      "identifier": "fs:allow-remove",
+      "allow": [
+        "**"
+      ]
+    },
+    {
       "identifier": "fs:allow-read",
       "allow": [
         "**"

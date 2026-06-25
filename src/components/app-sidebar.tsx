@@ -1,3 +1,4 @@
+// app-sidebar.tsx
 "use client"
 
 import * as React from "react"
@@ -34,22 +35,24 @@ import { useConfirm } from "../providers/confirm-dialog-provider"
 import { exit } from "@tauri-apps/plugin-process"
 import { setByPath } from "../lib/json-data"
 
-// Voci di navigazione principali. Spostate fuori dal componente: l'oggetto
-// non dipende da props/state, quindi non serve ricrearlo ad ogni render.
-const NAV_MAIN_ITEMS = [
-  { title: "Dashboard", url: "/", icon: <LayoutDashboardIcon /> },
-  { title: "List Mods", url: "/listmods", icon: <ListIcon /> },
-  { title: "keybinds", url: "/keybinds", icon: <KeyboardIcon /> },
-  { title: "JVM", url: "/jvm", icon: <CpuIcon /> },
-]
+// ============================================================================
+// CONSTANTS - Magic strings e configurazioni centralizzate
+// ============================================================================
 
-function notifySuccess(message: string) {
-  toast.success(message, { position: "top-right", style: toastStyles.success })
+const TOAST_POSITION = "top-right" as const
+const PROJECT_FILE_EXTENSION = "json" as const
+
+// ============================================================================
+// HELPER FUNCTIONS - Errori handling robusto
+// ============================================================================
+
+function notifySuccess(message: string): void {
+  toast.success(message, { position: TOAST_POSITION, style: toastStyles.success })
 }
 
-function notifyError(message: string, error?: unknown) {
+function notifyError(message: string, error?: unknown): void {
   if (error) console.error(error)
-  toast.error(message, { position: "top-right", style: toastStyles.destructive })
+  toast.error(message, { position: TOAST_POSITION, style: toastStyles.destructive })
 }
 
 async function writeProjectFile(filePath: string, data: project): Promise<void> {
@@ -57,10 +60,36 @@ async function writeProjectFile(filePath: string, data: project): Promise<void> 
     const content = JSON.stringify(data, null, 2)
     await writeTextFile(filePath, content)
   } catch (error) {
-    throw new Error(`Failed to write file: ${filePath}`, { cause: error })
+    const errorMessage = `Failed to write file: ${filePath}`
+    console.error(errorMessage, error)
+    throw new Error(errorMessage, { cause: error })
   }
 }
 
+async function parseProjectFile(raw: string): Promise<project> {
+  try {
+    return JSON.parse(raw) as project
+  } catch (error) {
+    const errorMessage = "Failed to parse project file as JSON"
+    console.error(errorMessage, error)
+    throw new Error(errorMessage, { cause: error })
+  }
+}
+
+// ============================================================================
+// NAVIGATION ITEMS - Spostati fuori dal componente
+// ============================================================================
+
+const NAV_MAIN_ITEMS = [
+  { title: "Dashboard", url: "/", icon: <LayoutDashboardIcon /> },
+  { title: "List Mods", url: "/listmods", icon: <ListIcon /> },
+  { title: "keybinds", url: "/keybinds", icon: <KeyboardIcon /> },
+  { title: "JVM", url: "/jvm", icon: <CpuIcon /> },
+]
+
+// ============================================================================
+// COMPONENT
+// ============================================================================
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { confirm } = useConfirm()
@@ -68,13 +97,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const projectState = useAppSelector((state) => state.project.project)
   const projectUnsaved = useAppSelector((state) => state.project.unsaved)
 
-  const clearProject = () => dispatch(loadProject(null))
+  // ========================================================================
+  // ACTIONS - Definizione chiara dei tipi di ritorno
+  // ========================================================================
+
+  const clearProject = (): void => { dispatch(loadProject(null)) }
 
   /**
-   * Se ci sono modifiche non salvate, chiede conferma all'utente.
-   * Ritorna true se si può procedere con l'azione richiesta (new/open/close/exit).
+   * Conferma la discarica delle modifiche non salvate.
+   * Ritorna true se si può procedere, false se l'utente ha annullato.
    */
-  const confirmDiscardUnsavedChanges = async () => {
+  const confirmDiscardUnsavedChanges = async (): Promise<boolean> => {
     if (!projectUnsaved) return true
 
     const result = await confirm({
@@ -91,7 +124,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     return result === "continue"
   }
 
-  const newProject = async () => {
+  const newProject = async (): Promise<void> => {
     if (projectState && !(await confirmDiscardUnsavedChanges())) return
 
     const workpath = await open({ multiple: false, directory: true })
@@ -111,21 +144,33 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }))
   }
 
-  const openProject = async () => {
+  const openProject = async (): Promise<void> => {
     if (projectState && !(await confirmDiscardUnsavedChanges())) return
 
     const selected = await open({
       multiple: false,
       directory: false,
-      filters: [{ name: "Project", extensions: ["json"] }],
+      filters: [{ name: "Project", extensions: [PROJECT_FILE_EXTENSION] }],
     })
     if (!selected) return
 
-    const raw = await readTextFile(selected)
-    const parsed = JSON.parse(raw) as project
+    let raw: string
+    try {
+      raw = await readTextFile(selected)
+    } catch (error) {
+      notifyError("Failed to read file", error)
+      return
+    }
+
+    let parsed: project
+    try {
+      parsed = await parseProjectFile(raw)
+    } catch (error) {
+      notifyError("Invalid project file format", error)
+      return
+    }
 
     clearProject()
-    // Normalizza i campi opzionali per i progetti salvati con versioni precedenti.
     dispatch(loadProject({
       ...parsed,
       assetes: parsed.assetes ?? [],
@@ -137,12 +182,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }))
   }
 
-  const closeProject = async () => {
+  const closeProject = async (): Promise<void> => {
     if (projectState && !(await confirmDiscardUnsavedChanges())) return
     clearProject()
   }
 
-  const saveProject = async () => {
+  const saveProject = async (): Promise<void> => {
     if (!projectState) return
 
     if (!projectState.metadata.name.trim()) {
@@ -151,7 +196,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
 
     try {
-      const filePath = await join(projectState.configs.workpath, `${projectState.metadata.name}.json`)
+      const filePath = await join(projectState.configs.workpath, `${projectState.metadata.name}.${PROJECT_FILE_EXTENSION}`)
       await writeProjectFile(filePath, projectState)
       dispatch(markSaved())
       notifySuccess("Saved successfully")
@@ -160,22 +205,20 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   }
 
-  const saveAsProject = async () => {
+  const saveAsProject = async (): Promise<void> => {
     if (!projectState) return
 
     try {
       const selected = await save({
         title: "Save Project As",
-        filters: [{ name: "Project", extensions: ["json"] }],
+        filters: [{ name: "Project", extensions: [PROJECT_FILE_EXTENSION] }],
       })
       if (!selected) return // utente ha annullato il dialog
 
       await writeProjectFile(selected, projectState)
 
-      // Aggiorna nome e workpath del progetto in base alla nuova destinazione,
-      // così il prossimo "Save" semplice salverà nello stesso posto.
       const newWorkpath = await dirname(selected)
-      const newName = (await basename(selected)).replace(/\.json$/i, "")
+      const newName = (await basename(selected)).replace(/\.${PROJECT_FILE_EXTENSION}$/i, "")
 
       dispatch(loadProject({
         ...projectState,
@@ -189,7 +232,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   }
 
-  const changeWorkspace = async () => {
+  const changeWorkspace = async (): Promise<void> => {
     if (!projectState) return
 
     const newWorkpath = await open({ multiple: false, directory: true })
@@ -198,54 +241,64 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     dispatch(updateProject(setByPath(projectState, "configs.workpath", newWorkpath)))
   }
 
-  const exitApp = async () => {
+  const exitApp = async (): Promise<void> => {
     if (projectState && !(await confirmDiscardUnsavedChanges())) return
     await exit(0)
   }
 
-  // Le azioni vengono ricreate ad ogni render (chiudono su projectState/projectUnsaved
-  // aggiornati). Le teniamo in un ref così il listener globale può restare montato
-  // una sola volta invece di essere ri-registrato ad ogni render.
-  const actionsRef = React.useRef({ newProject, openProject, closeProject, saveProject, saveAsProject, exitApp })
-  React.useEffect(() => {
-    actionsRef.current = { newProject, openProject, closeProject, saveProject, saveAsProject, exitApp }
-  })
+  // ========================================================================
+  // REFS & EFFECTS - Pattern actionsRef mantenuto ma migliorato
+  // ========================================================================
+
+  const actionsRef = React.useRef<{
+    newProject: typeof newProject
+    openProject: typeof openProject
+    closeProject: typeof closeProject
+    saveProject: typeof saveProject
+    saveAsProject: typeof saveAsProject
+    exitApp: typeof exitApp
+  } | null>(null)
 
   React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
+    actionsRef.current = { newProject, openProject, closeProject, saveProject, saveAsProject, exitApp }
+  }, [newProject, openProject, closeProject, saveProject, saveAsProject, exitApp])
+
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
       const isShortcutModifierPressed = event.ctrlKey || event.metaKey
       if (!isShortcutModifierPressed) return
 
-      // Evita di intercettare le scorciatoie mentre l'utente sta scrivendo
-      // in un campo di testo (es. nome progetto).
       const target = event.target as HTMLElement | null
-      const isTypingContext = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable
+      const isTypingContext =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        (target as HTMLTextAreaElement).isContentEditable
       if (isTypingContext) return
 
       switch (event.key.toLowerCase()) {
         case "n":
           event.preventDefault()
-          actionsRef.current.newProject()
+          actionsRef.current?.newProject()
           break
         case "o":
           event.preventDefault()
-          actionsRef.current.openProject()
+          actionsRef.current?.openProject()
           break
         case "w":
           event.preventDefault()
-          actionsRef.current.closeProject()
+          actionsRef.current?.closeProject()
           break
         case "s":
           event.preventDefault()
           if (event.shiftKey) {
-            actionsRef.current.saveAsProject()
+            actionsRef.current?.saveAsProject()
           } else {
-            actionsRef.current.saveProject()
+            actionsRef.current?.saveProject()
           }
           break
         case "q":
           event.preventDefault()
-          actionsRef.current.exitApp()
+          actionsRef.current?.exitApp()
           break
         default:
           break
@@ -253,8 +306,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
 
     window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+    }
   }, [])
+
+  // ========================================================================
+  // RENDER
+  // ========================================================================
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
@@ -268,48 +327,74 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <span className="text-base font-semibold">Forge Modpack</span>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56">
+              <DropdownMenuContent className="w-56" aria-label="Project menu">
                 <DropdownMenuLabel>File</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
-                  <DropdownMenuItem className="flex justify-between items-center" onClick={newProject}>
+                  <DropdownMenuItem
+                    className="flex justify-between items-center"
+                    onClick={newProject}
+                    aria-label="New project (Ctrl+N)"
+                  >
                     <span>New</span>
                     <span className="text-xs text-muted-foreground">Ctrl + N</span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="flex justify-between items-center" onClick={openProject}>
+                  <DropdownMenuItem
+                    className="flex justify-between items-center"
+                    onClick={openProject}
+                    aria-label="Open project (Ctrl+O)"
+                  >
                     <span>Open</span>
                     <span className="text-xs text-muted-foreground">Ctrl + O</span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem disabled={!projectState} className="flex justify-between items-center" onClick={closeProject}>
+                  <DropdownMenuItem
+                    disabled={!projectState}
+                    className="flex justify-between items-center"
+                    onClick={closeProject}
+                    aria-label="Close project (Ctrl+W)"
+                  >
                     <span>Close</span>
                     <span className="text-xs text-muted-foreground">Ctrl + W</span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
-                  <DropdownMenuItem disabled={!projectState} className="flex justify-between items-center" onClick={saveProject}>
+                  <DropdownMenuItem
+                    disabled={!projectState}
+                    className="flex justify-between items-center"
+                    onClick={saveProject}
+                    aria-label="Save project (Ctrl+S)"
+                  >
                     <span>Save</span>
                     <span className="text-xs text-muted-foreground">Ctrl + S</span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem disabled={!projectState} className="flex justify-between items-center" onClick={saveAsProject}>
+                  <DropdownMenuItem
+                    disabled={!projectState}
+                    className="flex justify-between items-center"
+                    onClick={saveAsProject}
+                    aria-label="Save project as (Ctrl+Shift+S)"
+                  >
                     <span>Save As</span>
                     <span className="text-xs text-muted-foreground">Ctrl + Shift + S</span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem disabled={!projectState} onClick={changeWorkspace}>
+                <DropdownMenuItem
+                  disabled={!projectState}
+                  onClick={changeWorkspace}
+                  aria-label="Change workspace"
+                >
                   <span>Change Workspace</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuItem
-                    className="flex justify-between items-center text-destructive hover:bg-destructive/30!"
-                    onClick={exitApp}
-                  >
-                    <span>Exit</span>
-                    <span className="text-xs text-muted-foreground">Ctrl + Q</span>
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
+                <DropdownMenuItem
+                  className="flex justify-between items-center text-destructive hover:bg-destructive/30!"
+                  onClick={exitApp}
+                  aria-label="Exit application (Ctrl+Q)"
+                >
+                  <span>Exit</span>
+                  <span className="text-xs text-muted-foreground">Ctrl + Q</span>
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarMenuItem>

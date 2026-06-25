@@ -114,9 +114,9 @@ export const ConfirmProvider = ({ children }: { children: ReactNode }) => {
                         <AlertDialogCancel onClick={() => close(false)}>
                             Cancel
                         </AlertDialogCancel>
-                        <AlertDialogAction
+                        <AlertDialogAction variant={'destructive'}
                             onClick={() => close(true)}
-                            className="bg-destructive text-white"
+                            className="text-white"
                         >
                             Delete
                         </AlertDialogAction>
@@ -154,7 +154,7 @@ export const ConfirmProvider = ({ children }: { children: ReactNode }) => {
                     <AlertDialogHeader className="items-center">
                         {getIcon()}
                         <AlertDialogTitle className='w-full text-center'>{confirmDialogTitle()}</AlertDialogTitle>
-                        <AlertDialogDescription className="text-center">
+                        <AlertDialogDescription className="w-full text-center">
                             {message}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
