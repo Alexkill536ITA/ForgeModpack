@@ -1,9 +1,10 @@
 "use client"
 
-import { useState } from "react"
-import { KeyboardIcon, MouseIcon, PlusIcon, Trash2Icon, MapIcon, XIcon, PencilIcon, SearchIcon, BoxesIcon, TagsIcon } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { KeyboardIcon, MouseIcon, PlusIcon, Trash2Icon, MapIcon, XIcon, PencilIcon, SearchIcon, BoxesIcon, TagsIcon, DownloadIcon, RefreshCcwIcon } from "lucide-react"
 
 import { ProjectGate } from "../../components/project-gate"
+import { ExportDialog } from "../../components/keybinds/export-dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card"
 import { Button } from "../../components/ui/button"
 import { Input } from "../../components/ui/input"
@@ -38,8 +39,15 @@ import {
   ColorPickerOutput,
   ColorPickerFormat,
 } from "../../components/ui/color-picker"
-import { useAppDispatch } from "../../redux/hooks"
+import { useAppDispatch, useAppSelector } from "../../redux/hooks"
 import { updateProject } from "../../redux/project-slice"
+import {
+  selectKeybindActions,
+  setKeybindActions,
+  setKeybindActionsError,
+  setKeybindActionsLoading,
+} from "../../redux/keybind-actions-slice"
+import { getKeybindActionsCached, peekKeybindActionsCache } from "../../lib/keybind-cache"
 import { cn } from "../../lib/utils"
 import { keybind, keybindCategory, keybindMap, keybindTag, mod, project } from "../../model/models"
 import {
@@ -51,7 +59,7 @@ import {
   KeyboardItem,
   isSpacer,
 } from "../../lib/keyboard-layout"
-import { defaultKeybinds, defaultCategories, defaultTags } from "../../lib/keybind-template"
+import { defaultKeybinds, defaultCategories, defaultTags, vanillaActions } from "../../lib/keybind-template"
 
 const UNIT_REM = 2.5
 const GAP_REM = 0.25
@@ -108,36 +116,94 @@ function FilterChip({
   )
 }
 
+// Massimo numero di binding assegnabili a un singolo tasto.
+const MAX_BINDINGS = 4
+
+// Suddivisione del tasto in riquadri, uno per binding:
+//  1 → pieno; 2 → metà sopra / metà sotto; 3 → due quadranti in alto + fascia
+//  intera in basso; 4 → griglia 2×2. Ritorna un rettangolo per colore.
+function colorRects(colors: string[]): { top: string; left: string; width: string; height: string; background: string }[] {
+  const TL = { top: "0", left: "0", width: "50%", height: "50%" }
+  const TR = { top: "0", left: "50%", width: "50%", height: "50%" }
+  const BL = { top: "50%", left: "0", width: "50%", height: "50%" }
+  const BR = { top: "50%", left: "50%", width: "50%", height: "50%" }
+  const TOP = { top: "0", left: "0", width: "100%", height: "50%" }
+  const BOTTOM = { top: "50%", left: "0", width: "100%", height: "50%" }
+  const FULL = { top: "0", left: "0", width: "100%", height: "100%" }
+
+  let boxes: { top: string; left: string; width: string; height: string }[]
+  switch (colors.length) {
+    case 1: boxes = [FULL]; break
+    case 2: boxes = [TOP, BOTTOM]; break
+    case 3: boxes = [TL, TR, BOTTOM]; break
+    default: boxes = [TL, TR, BL, BR]; break
+  }
+  return boxes.map((b, i) => ({ ...b, background: colors[i] }))
+}
+
 function KeyCap({
-  def, action, color, dimmed, onClick,
+  def, bindings, dimmed, onClick,
 }: {
   def: KeyDef
-  action?: string
-  color?: string
+  bindings: { action: string; color: string; category: string }[]
   dimmed: boolean
   onClick: () => void
 }) {
   const w = def.w ?? 1
-  const styled = !!color
+  const styled = bindings.length > 0
+  const multi = bindings.length > 1
+  const rects = colorRects(bindings.map((b) => b.color))
+  // Un solo binding: testo a contrasto sul colore. Più binding: testo chiaro con
+  // ombra, leggibile sopra qualsiasi riquadro di colore.
+  const textColor = bindings.length === 1 ? contrastText(bindings[0].color) : "#faf9f5"
+  const title = styled
+    ? `${bindings.map((b) => `${b.action} — ${b.category}`).join("\n")}\n(${def.label})`
+    : def.label
 
   return (
     <button
       type="button"
       onClick={onClick}
-      title={action ? `${action} (${def.label})` : def.label}
+      title={title}
       style={{
         width: keyWidth(w),
         height: def.tall ? `calc(2 * ${UNIT_REM}rem + ${GAP_REM}rem)` : `${UNIT_REM}rem`,
-        ...(styled ? { background: color, color: contrastText(color), borderColor: "transparent" } : {}),
+        ...(styled
+          ? { color: textColor, borderColor: "transparent", ...(multi ? { textShadow: "0 1px 2px rgba(0,0,0,0.7)" } : {}) }
+          : {}),
       }}
       className={cn(
-        "flex shrink-0 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-md border px-0.5 text-center transition-transform hover:z-10 hover:scale-105",
+        "relative flex shrink-0 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-md border px-0.5 text-center transition-transform hover:z-10 hover:scale-105",
         !styled && "border-border bg-muted text-muted-foreground",
         dimmed && "opacity-20"
       )}
     >
-      {action && <span className="line-clamp-2 text-[9px] leading-tight font-medium">{action}</span>}
-      <span className={cn("leading-tight", action ? "text-[7.5px] opacity-75" : "text-[10px]")}>{def.label}</span>
+      {/* Strato dei riquadri colorati (uno per binding) */}
+      {styled && (
+        <span aria-hidden className="pointer-events-none absolute inset-0">
+          {rects.map((r, i) => (
+            <span
+              key={i}
+              className="absolute"
+              style={{ top: r.top, left: r.left, width: r.width, height: r.height, background: r.background }}
+            />
+          ))}
+        </span>
+      )}
+      {/* Contenuto sopra i riquadri */}
+      <span className="relative z-10 flex flex-col items-center justify-center">
+        {multi ? (
+          <>
+            <span className="text-[10px] leading-tight font-semibold">×{bindings.length}</span>
+            <span className="text-[7.5px] leading-tight opacity-90">{def.label}</span>
+          </>
+        ) : (
+          <>
+            {styled && <span className="line-clamp-2 text-[9px] leading-tight font-medium">{bindings[0].action}</span>}
+            <span className={cn("leading-tight", styled ? "text-[7.5px] opacity-75" : "text-[10px]")}>{def.label}</span>
+          </>
+        )}
+      </span>
     </button>
   )
 }
@@ -150,10 +216,11 @@ function KeybindsBoard({ project }: { project: project }) {
   const [tagFilter, setTagFilter] = useState("all")
   const [search, setSearch] = useState("")
 
-  // Dialog binding.
+  // Dialog binding: lista di righe (fino a MAX_BINDINGS) azione + mod.
   const [editing, setEditing] = useState<KeyDef | null>(null)
-  const [draftAction, setDraftAction] = useState("")
-  const [draftCategory, setDraftCategory] = useState("")
+  const [draftBindings, setDraftBindings] = useState<
+    { action: string; actionKey?: string; category: string }[]
+  >([])
 
   // Dialog Add/Edit Mod (editingMod = nome originale in modifica, null in aggiunta).
   const [modOpen, setModOpen] = useState(false)
@@ -172,13 +239,81 @@ function KeybindsBoard({ project }: { project: project }) {
   const [editingMapIndex, setEditingMapIndex] = useState<number | null>(null)
   const [mapName, setMapName] = useState("")
 
+  // Dialog Export config.
+  const [exportOpen, setExportOpen] = useState(false)
+
   const maps = project.keybindMaps
   const categories = project.keybindCategories
   const tags = project.keybindTags
   const current = maps[activeMap] as keybindMap | undefined
-  const bindingByKey = new Map((current?.keybinds ?? []).map((kb) => [kb.key, kb]))
+  // Un tasto può avere più binding: raggruppo per `key` (max MAX_BINDINGS).
+  const bindingsByKey = new Map<string, keybind[]>()
+  for (const kb of current?.keybinds ?? []) {
+    const arr = bindingsByKey.get(kb.key)
+    if (arr) arr.push(kb)
+    else bindingsByKey.set(kb.key, [kb])
+  }
   const categoryOf = (name: string) => categories.find((c) => c.name === name)
   const colorOf = (name: string) => categoryOf(name)?.color ?? "#888888"
+
+  // Azioni keybind estratte dai jar (runtime, non nel project). NON si scansiona
+  // al mount: si carica solo dalla cache SQLite se presente. La scansione vera
+  // (lettura dei jar) parte dalla sezione di import (dialog Add Mod, quando non
+  // c'è cache) o dal refresh manuale.
+  const keybindActions = useAppSelector(selectKeybindActions)
+  const workpath = project.configs.workpath
+  const [scanning, setScanning] = useState(false)
+
+  const bootstrapped = useRef<string | null>(null)
+  useEffect(() => {
+    if (bootstrapped.current === workpath) return
+    bootstrapped.current = workpath
+    if (keybindActions.workpath === workpath) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const cached = await peekKeybindActionsCache(workpath)
+        if (!cancelled && cached) dispatch(setKeybindActions({ workpath, mods: cached }))
+      } catch (err) {
+        console.error(err)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [workpath, keybindActions.workpath, dispatch])
+
+  // Scansiona le keybind dei jar (via cache SQLite). `force` = refresh manuale.
+  async function scanKeybinds(force: boolean) {
+    setScanning(true)
+    dispatch(setKeybindActionsLoading(true))
+    try {
+      const mods = await getKeybindActionsCached(workpath, force)
+      dispatch(setKeybindActions({ workpath, mods }))
+    } catch (err) {
+      console.error(err)
+      dispatch(setKeybindActionsError(String(err)))
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  // Mappa nome-mod -> mod (la category dei keybind è il nome della mod).
+  const modByName = new Map(project.mods.map((m) => [m.name, m]))
+  // Azioni selezionabili per una category. Ritorna `null` quando la category è
+  // una mod reale ma senza keybind scansionate (→ la UI mostra input libero,
+  // così non si suggeriscono azioni vanilla che non le appartengono).
+  function actionsForCategory(name: string): { value: string; label: string }[] | null {
+    const m = modByName.get(name)
+    if (m) {
+      const scanned = keybindActions.byModId[m.modId]
+      return scanned && scanned.length > 0
+        ? scanned.map((a) => ({ value: a.key, label: a.label }))
+        : null
+    }
+    // Categoria non-mod (es. default UI/Movimento/Inventario): azioni vanilla.
+    return vanillaActions().map((a) => ({ value: a.actionKey, label: a.label }))
+  }
 
   function commit(next: project) {
     dispatch(updateProject(next))
@@ -243,17 +378,44 @@ function KeybindsBoard({ project }: { project: project }) {
 
   // --- Binding ---
   function openKey(def: KeyDef) {
-    const existing = bindingByKey.get(def.id)
+    const existing = bindingsByKey.get(def.id) ?? []
     setEditing(def)
-    setDraftAction(existing?.action ?? "")
-    setDraftCategory(existing?.category ?? categories[0]?.name ?? "")
+    setDraftBindings(
+      existing.length > 0
+        ? existing.map((kb) => ({ action: kb.action, actionKey: kb.actionKey, category: kb.category }))
+        : [{ action: "", actionKey: undefined, category: categories[0]?.name ?? "" }]
+    )
+  }
+  function addDraftBinding() {
+    setDraftBindings((prev) =>
+      prev.length >= MAX_BINDINGS
+        ? prev
+        : [...prev, { action: "", actionKey: undefined, category: categories[0]?.name ?? "" }]
+    )
+  }
+  function updateDraftBinding(
+    index: number,
+    patch: Partial<{ action: string; actionKey?: string; category: string }>
+  ) {
+    setDraftBindings((prev) => prev.map((b, i) => (i === index ? { ...b, ...patch } : b)))
+  }
+  function removeDraftBinding(index: number) {
+    setDraftBindings((prev) => prev.filter((_, i) => i !== index))
   }
   function saveBinding() {
     if (!editing || !current) return
-    const action = draftAction.trim()
-    let keybinds = current.keybinds.filter((kb) => kb.key !== editing.id)
-    if (action) keybinds = [...keybinds, { key: editing.id, action, category: draftCategory }]
-    commitKeybinds(keybinds)
+    // Rimuovo tutti i binding del tasto e riaggiungo quelli con azione valida.
+    const kept = current.keybinds.filter((kb) => kb.key !== editing.id)
+    const added: keybind[] = draftBindings
+      .filter((b) => b.action.trim() && b.category)
+      .slice(0, MAX_BINDINGS)
+      .map((b) => ({
+        key: editing.id,
+        action: b.action.trim(),
+        category: b.category,
+        ...(b.actionKey ? { actionKey: b.actionKey } : {}),
+      }))
+    commitKeybinds([...kept, ...added])
     setEditing(null)
   }
   function removeBinding() {
@@ -304,8 +466,16 @@ function KeybindsBoard({ project }: { project: project }) {
       if (modFilter === old) setModFilter(name)
     }
     commit(next)
-    setDraftCategory(name)
     setModOpen(false)
+
+    // Dopo aver AGGIUNTO una mod (non in modifica), avvia la scansione delle sue
+    // keybind se non risultano già in cache: qui è il momento dell'import, quindi
+    // è corretto leggere i jar. Forza la scansione così una mod appena aggiunta
+    // (magari assente da una cache precedente) viene sempre inclusa.
+    if (!old) {
+      const added = modByName.get(name)
+      if (added && !keybindActions.byModId[added.modId]) void scanKeybinds(true)
+    }
   }
   function removeMod() {
     if (!editingMod) return
@@ -368,14 +538,16 @@ function KeybindsBoard({ project }: { project: project }) {
   }
 
   function renderKey(item: KeyDef) {
-    const binding = bindingByKey.get(item.id)
+    const list = bindingsByKey.get(item.id) ?? []
+    const bindings = list.map((kb) => ({ action: kb.action, color: colorOf(kb.category), category: kb.category }))
+    // Il tasto è "attivo" se almeno un binding matcha i filtri (o è vuoto).
+    const dimmed = list.length === 0 ? !matchesFilters(undefined) : !list.some((kb) => matchesFilters(kb))
     return (
       <KeyCap
         key={item.id}
         def={item}
-        action={binding?.action}
-        color={binding ? colorOf(binding.category) : undefined}
-        dimmed={!matchesFilters(binding)}
+        bindings={bindings}
+        dimmed={dimmed}
         onClick={() => openKey(item)}
       />
     )
@@ -405,7 +577,19 @@ function KeybindsBoard({ project }: { project: project }) {
               </div>
               <CardTitle className="text-2xl">Mods</CardTitle>
             </div>
-            <Button variant="outline" size="sm" onClick={openAddMod}><PlusIcon /> Mod</Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => void scanKeybinds(true)}
+                disabled={scanning}
+                aria-label="Rescan mod keybinds"
+                title="Rescan mod keybinds"
+              >
+                <RefreshCcwIcon className={cn(scanning && "ease-in-out animate-spin")} />
+              </Button>
+              <Button variant="outline" size="sm" onClick={openAddMod}><PlusIcon /> Mod</Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-2 py-3">
             {categories.length === 0 && tags.length === 0 && (
@@ -483,6 +667,15 @@ function KeybindsBoard({ project }: { project: project }) {
               )
             })}
             <Button variant="ghost" size="sm" onClick={openAddMap}><PlusIcon /> Map</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              onClick={() => setExportOpen(true)}
+              disabled={maps.length === 0}
+            >
+              <DownloadIcon /> Export
+            </Button>
           </div>
 
           {!current ? (
@@ -565,35 +758,109 @@ function KeybindsBoard({ project }: { project: project }) {
         </CardContent>
       </Card>
 
-      {/* Dialog binding */}
-      <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
-        <DialogContent>
+      {/* Dialog binding — non-modal + niente chiusura su interazione esterna,
+          così il popup (portalato) del Combobox azioni resta cliccabile. */}
+      <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)} modal={false}>
+        <DialogContent className="max-w-xl!"
+          onInteractOutside={(e) => e.preventDefault()}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>{editing?.label}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="kb-action">Action</Label>
-              <Input id="kb-action" placeholder="e.g. Open inventory" value={draftAction} onChange={(e) => setDraftAction(e.target.value)} autoFocus />
+          {categories.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No mods yet. Add a mod first.</p>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label>Bindings</Label>
+                <span className="text-xs text-muted-foreground">{draftBindings.length}/{MAX_BINDINGS}</span>
+              </div>
+              {draftBindings.map((b, i) => {
+                const color = colorOf(b.category)
+                const actions = actionsForCategory(b.category)
+                const selected = actions?.find((a) => a.value === b.actionKey) ?? null
+                return (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="size-3 shrink-0 rounded-full" style={{ background: color }} />
+                    {actions ? (
+                      <div className="min-w-0 flex-1">
+                        <Combobox
+                          items={actions}
+                          value={selected}
+                          onValueChange={(v: { value: string; label: string } | null) =>
+                            updateDraftBinding(i, { actionKey: v?.value, action: v?.label ?? "" })
+                          }
+                          isItemEqualToValue={(a, c) => a?.value === c?.value}
+                        >
+                          <ComboboxInput placeholder="Select action" />
+                          <ComboboxContent>
+                            <ComboboxEmpty>No actions found.</ComboboxEmpty>
+                            <ComboboxList>
+                              {(item: { value: string; label: string }) => (
+                                <ComboboxItem key={item.value} value={item}>{item.label}</ComboboxItem>
+                              )}
+                            </ComboboxList>
+                          </ComboboxContent>
+                        </Combobox>
+                      </div>
+                    ) : (
+                      <Input
+                        placeholder="e.g. Open inventory"
+                        value={b.action}
+                        onChange={(e) => updateDraftBinding(i, { action: e.target.value, actionKey: undefined })}
+                        autoFocus={i === 0}
+                        className="flex-1"
+                      />
+                    )}
+                    <Select
+                      value={b.category}
+                      onValueChange={(v) => updateDraftBinding(i, { category: v, action: "", actionKey: undefined })}
+                    >
+                      <SelectTrigger className="h-8 w-36 shrink-0">
+                        <SelectValue placeholder="Mod" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categories.map((c) => (
+                          <SelectItem key={c.name} value={c.name}>{c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0"
+                      onClick={() => removeDraftBinding(i)}
+                      aria-label="Remove binding"
+                    >
+                      <XIcon />
+                    </Button>
+                  </div>
+                )
+              })}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addDraftBinding}
+                disabled={draftBindings.length >= MAX_BINDINGS}
+              >
+                <PlusIcon /> Add binding
+              </Button>
             </div>
-            <div className="space-y-2">
-              <Label>Mod</Label>
-              {categories.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No mods yet.</p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {categories.map((c) => (
-                    <FilterChip key={c.name} label={c.name} color={c.color} active={draftCategory === c.name} onClick={() => setDraftCategory(c.name)} />
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          )}
           <DialogFooter className="sm:justify-between">
-            {bindingByKey.has(editing?.id ?? "") ? (
+            {bindingsByKey.has(editing?.id ?? "") ? (
               <Button type="button" variant="ghost" className="text-destructive" onClick={removeBinding}><Trash2Icon /> Remove</Button>
             ) : <span />}
-            <Button type="button" onClick={saveBinding} disabled={!!draftAction.trim() && !draftCategory}>Save</Button>
+            <Button
+              type="button"
+              onClick={saveBinding}
+              disabled={categories.length === 0 || draftBindings.some((b) => b.action.trim() && !b.category)}
+            >
+              Save
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -704,6 +971,18 @@ function KeybindsBoard({ project }: { project: project }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog Export config — remount ad ogni apertura per riallineare i default
+          (mappa attiva) via key. */}
+      {exportOpen && (
+        <ExportDialog
+          key={activeMap}
+          project={project}
+          open={exportOpen}
+          onOpenChange={setExportOpen}
+          defaultMapIndex={activeMap}
+        />
+      )}
     </div>
   )
 }

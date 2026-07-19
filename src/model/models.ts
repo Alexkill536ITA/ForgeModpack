@@ -69,7 +69,9 @@ export type dependency = {
 
 export type keybind = {
     key: string,        // id del tasto fisico (vedi keyboard-layout.ts)
-    action: string,     // descrizione dell'azione
+    action: string,     // descrizione leggibile dell'azione (label)
+    actionKey?: string, // chiave di traduzione Minecraft (es. "key.jei.toggleOverlay"),
+                        // usata per scrivere i file di config; opzionale = retrocompatibile
     category: string,   // nome della categoria (riferimento a keybindCategory.name)
 };
 

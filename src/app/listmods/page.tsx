@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { join } from "@tauri-apps/api/path"
-import { RefreshCcwIcon, PackageIcon, CircleCheckIcon, CircleSlashIcon, CircleXIcon } from "lucide-react"
+import { RefreshCcwIcon, PackageIcon, CircleCheckIcon, CircleSlashIcon, CircleXIcon, SearchIcon } from "lucide-react"
 
 import { ProjectGate } from "../../components/project-gate"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card"
 import { Button } from "../../components/ui/button"
+import { Input } from "../../components/ui/input"
 import { Badge } from "../../components/ui/badge"
 import { Checkbox } from "../../components/ui/checkbox"
 import {
@@ -68,6 +69,47 @@ function missingDependencies(target: mod, installedIds: Set<string>): string[] {
     })
 }
 
+/**
+ * Fuzzy match "a sottosequenza": ogni carattere di `query` deve comparire in
+ * `text` nello stesso ordine (non necessariamente contiguo). Ritorna un punteggio
+ * (più alto = match migliore) o `null` se non combacia. Premia i caratteri
+ * consecutivi e quelli a inizio parola, così i match più "compatti" salgono.
+ */
+function fuzzyMatch(query: string, text: string): number | null {
+  const q = query.toLowerCase()
+  const t = text.toLowerCase()
+  let score = 0
+  let ti = 0
+  let consecutive = 0
+  for (let qi = 0; qi < q.length; qi++) {
+    const found = t.indexOf(q[qi], ti)
+    if (found === -1) return null
+    if (found === ti) {
+      // carattere immediatamente successivo al precedente match
+      consecutive++
+      score += 5 + consecutive
+    } else {
+      consecutive = 0
+      score += 1
+    }
+    // bonus se il match cade a inizio parola
+    if (found === 0 || /[\s\-_./]/.test(t[found - 1])) score += 3
+    ti = found + 1
+  }
+  return score
+}
+
+/** Miglior punteggio fuzzy della `query` fra i campi rilevanti della mod. */
+function modScore(m: mod, query: string): number | null {
+  const fields = [m.name, m.filename, m.modId ?? "", ...(m.authors ?? [])]
+  let best: number | null = null
+  for (const f of fields) {
+    const s = fuzzyMatch(query, f)
+    if (s !== null && (best === null || s > best)) best = s
+  }
+  return best
+}
+
 // Colori coerenti con i loader mostrati nella home.
 const LOADER_STYLES: Record<string, string> = {
   forge: "border-[#ffc24b] text-[#ffc24b]",
@@ -106,6 +148,7 @@ function ModsList({ project }: { project: project }) {
   const dispatch = useAppDispatch()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
 
   const workpath = project.configs.workpath
   const mods = project.mods
@@ -182,6 +225,17 @@ function ModsList({ project }: { project: project }) {
 
   const missing = mods.filter((m) => m.active && missingDependencies(m, installedIds).length > 0)
 
+  // Lista mostrata: senza query mantiene l'ordine originale; con query filtra
+  // per match fuzzy e ordina per rilevanza (punteggio decrescente).
+  const query = search.trim()
+  const visibleMods = query
+    ? mods
+        .map((m) => ({ m, score: modScore(m, query) }))
+        .filter((x): x is { m: mod; score: number } => x.score !== null)
+        .sort((a, b) => b.score - a.score)
+        .map((x) => x.m)
+    : mods
+
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-4">
@@ -213,7 +267,12 @@ function ModsList({ project }: { project: project }) {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-2xl">
-            Mods {total > 0 && <span className="text-muted-foreground text-base">({total})</span>}
+            Mods{" "}
+            {total > 0 && (
+              <span className="text-muted-foreground text-base">
+                ({query ? `${visibleMods.length}/${total}` : total})
+              </span>
+            )}
           </CardTitle>
           <Button variant="ghost" size="icon" onClick={() => void scan()} disabled={loading} aria-label="Refresh">
             <RefreshCcwIcon className={cn(loading && "ease-in-out animate-spin")} />
@@ -232,75 +291,95 @@ function ModsList({ project }: { project: project }) {
               <p className="text-muted-foreground">No mods found in this modpack.</p>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12 text-center">On</TableHead>
-                  <TableHead>Mod</TableHead>
-                  <TableHead className="w-32">Version</TableHead>
-                  <TableHead className="w-28">Loader</TableHead>
-                  <TableHead>Authors</TableHead>
-                  <TableHead className="w-40">Dependencies</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {mods.map((m) => (
-                  <TableRow key={m.filename} className={cn(!m.active && "opacity-50")}>
-                    <TableCell className="text-center">
-                      <Checkbox
-                        checked={m.active}
-                        onCheckedChange={() => toggleActive(m.filename)}
-                        aria-label={`Enable ${m.name}`}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div className="font-medium">{m.name}</div>
-                      <div className="text-xs text-muted-foreground">{m.filename}</div>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{m.version || "—"}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={cn("capitalize", LOADER_STYLES[m.modloader])}>
-                        {m.modloader}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {m.authors && m.authors.length > 0 ? m.authors.join(", ") : "—"}
-                    </TableCell>
-                    <TableCell>
-                      {(() => {
-                        const missing = missingDependencies(m, installedIds)
-                        if (missing.length === 0) {
-                          return (
-                            <span className="flex items-center gap-2">
-                              <span className="size-2.5 shrink-0 rounded-full bg-emerald-500" />
-                              <span className="text-xs text-muted-foreground">OK</span>
-                            </span>
-                          )
-                        }
-                        return (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="flex items-center gap-2 cursor-default">
-                                <span className="size-2.5 shrink-0 rounded-full bg-red-500" />
-                                <span className="truncate text-xs text-red-500">{missing.join(", ")}</span>
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <div className="font-medium">Missing dependencies</div>
-                              <ul className="list-disc pl-4">
-                                {missing.map((dep) => (
-                                  <li key={dep}>{dep}</li>
-                                ))}
-                              </ul>
-                            </TooltipContent>
-                          </Tooltip>
-                        )
-                      })()}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <div className="flex flex-col gap-4">
+              <div className="relative">
+                <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search mods by name, file, id or author…"
+                  className="h-9 pl-8"
+                  aria-label="Search mods"
+                />
+              </div>
+              {query && visibleMods.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+                  <SearchIcon className="size-10 text-muted-foreground" />
+                  <p className="text-muted-foreground">No mods match “{query}”.</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-12 text-center">On</TableHead>
+                      <TableHead>Mod</TableHead>
+                      <TableHead className="w-32">Version</TableHead>
+                      <TableHead className="w-28">Loader</TableHead>
+                      <TableHead>Authors</TableHead>
+                      <TableHead className="w-40">Dependencies</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {visibleMods.map((m) => (
+                      <TableRow key={m.filename} className={cn(!m.active && "opacity-50")}>
+                        <TableCell className="text-center">
+                          <Checkbox
+                            checked={m.active}
+                            onCheckedChange={() => toggleActive(m.filename)}
+                            aria-label={`Enable ${m.name}`}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{m.name}</div>
+                          <div className="text-xs text-muted-foreground">{m.filename}</div>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{m.version || "—"}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={cn("capitalize", LOADER_STYLES[m.modloader])}>
+                            {m.modloader}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {m.authors && m.authors.length > 0 ? m.authors.join(", ") : "—"}
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            const missing = missingDependencies(m, installedIds)
+                            if (missing.length === 0) {
+                              return (
+                                <span className="flex items-center gap-2">
+                                  <span className="size-2.5 shrink-0 rounded-full bg-emerald-500" />
+                                  <span className="text-xs text-muted-foreground">OK</span>
+                                </span>
+                              )
+                            }
+                            return (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="flex items-center gap-2 cursor-default">
+                                    <span className="size-2.5 shrink-0 rounded-full bg-red-500" />
+                                    <span className="truncate text-xs text-red-500">{missing.join(", ")}</span>
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <div className="font-medium">Missing dependencies</div>
+                                  <ul className="list-disc pl-4">
+                                    {missing.map((dep) => (
+                                      <li key={dep}>{dep}</li>
+                                    ))}
+                                  </ul>
+                                </TooltipContent>
+                              </Tooltip>
+                            )
+                          })()}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>

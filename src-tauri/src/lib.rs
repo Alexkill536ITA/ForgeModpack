@@ -35,6 +35,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             mods::scan_mods,
+            mods::scan_keybinds,
             files::read_dir_tree
         ])
         .run(tauri::generate_context!())

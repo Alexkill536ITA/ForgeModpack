@@ -30,7 +30,8 @@ Usa **pnpm** (non npm/yarn). Per testare le feature reali serve `tauri:dev`: le 
 - **Next.js 16 App Router**, `output: "export"` (SSG puro, niente server/route handlers).
   Le pagine sono `"use client"`; immagini `unoptimized`.
 - **Redux Toolkit** per lo state globale ([`src/redux`](src/redux)): slice `project`,
-  `minecraftManifest`, `modLoaderManifest`, `documents` (file aperto nell'editor). Accesso via `useAppSelector`/`useAppDispatch`
+  `minecraftManifest`, `modLoaderManifest`, `documents` (file aperto nell'editor),
+  `keybindActions` (azioni keybind scansionate dai jar, runtime). Accesso via `useAppSelector`/`useAppDispatch`
   ([`hooks.ts`](src/redux/hooks.ts)), mai `useSelector` grezzo.
 - **shadcn/ui** ([`src/components/ui`](src/components/ui)) + **Tailwind v4** (config in
   [`globals.css`](src/app/globals.css), tema `dark` forzato nel layout). Non modificare a
@@ -95,6 +96,29 @@ Usa **pnpm** (non npm/yarn). Per testare le feature reali serve `tauri:dev`: le 
   molte dipendenze sono bundlate nel jar). `mandatory` considera sia `mandatory=` (Forge classico)
   sia `type="required"|"optional"` (formato nuovo). I comandi applicativi non richiedono permessi
   capability (a differenza dei comandi dei plugin). La scansione usa `std::fs`, non plugin-fs.
+- **Scansione keybind (Rust)**: [`mods.rs`](src-tauri/src/mods.rs) espone anche `scan_keybinds(dir)`
+  che apre ogni jar e legge le chiavi di traduzione `key.*` dai file `assets/*/lang/en_us.json`
+  (escluse `key.categories.*`), ritornando `ModKeybinds[]` (`filename`, `modId`, `keybinds` =
+  `{key, label}`, dedup per chiave). Serve a popolare la lista di azioni selezionabili nel dialog
+  dei keybind, filtrata per mod. Riusa gli helper di `scan_mods` (`read_entry`, `provided_from_*`
+  per il `modId`, pattern di enumerazione `file_names()`). I JarJar non sono coperti (estensione
+  futura). Il risultato vive in uno slice Redux **runtime**
+  ([`keybind-actions-slice.ts`](src/redux/keybind-actions-slice.ts)), **non** nel `project.json`
+  (dato voluminoso e derivabile), ed è **cachato in SQLite** ([`keybind-cache.ts`](src/lib/keybind-cache.ts),
+  riusa la tabella key-value `manifest_cache` con chiave `keybinds:<workpath>`, **senza TTL**: si
+  invalida solo col refresh manuale). La pagina keybinds **non scansiona al mount** (legge solo la
+  cache via `peekKeybindActionsCache`): la scansione dei jar parte alla **conferma di Add Mod**
+  (`saveMod`, quando la mod appena aggiunta non è ancora in `byModId` → scan forzato che aggiorna la
+  cache) o dal **tasto refresh** nella card Mods (`getKeybindActionsCached(force=true)`).
+- **Export keybind → file di config**: [`keybind-export/`](src/lib/keybind-export) definisce
+  l'astrazione `KeybindExporter` (exporter **puri**: ritornano `{content, suggestedPath, warnings}`,
+  non scrivono su disco — la scrittura + toast resta nella UI). `options-txt.ts` è l'exporter
+  concreto per `options.txt` di Minecraft; `merge-options.ts` fa il **merge conservativo** (preserva
+  le righe non-`key_*` e i bind di mod non gestite, sovrascrive/appende i propri, mantiene l'EOL
+  CRLF/LF). `keyset.ts` è un placeholder disabilitato (`available:false`, formato TBD). La
+  traduzione id-tasto → input code Minecraft è in [`mc-keycodes.ts`](src/lib/mc-keycodes.ts)
+  (`toMinecraftInput`, fallback `key.keyboard.unknown` per i tasti IT accentati). UI in
+  [`export-dialog.tsx`](src/components/keybinds/export-dialog.tsx) (scelta mappa/formato/destinazione).
 - **File explorer (Rust)**: [`src-tauri/src/files.rs`](src-tauri/src/files.rs) espone `read_dir_tree(dir)`
   che legge **ricorsivamente** una directory e ritorna un albero `FileNode[]` (`name`, `path`
   assoluto, `isDir`, `children`), cartelle prima dei file e in ordine alfabetico; i symlink non
@@ -140,6 +164,18 @@ Usa **pnpm** (non npm/yarn). Per testare le feature reali serve `tauri:dev`: le 
     (Mods + Tags) che combinano il dimming. Il binding ha solo `category` (la mod); i tag
     vengono dalla mod. Persiste in `project.keybindCategories` / `project.keybindTags` /
     `project.keybindMaps` via `updateProject` (→ `unsaved` → SaveBar).
+    - **Multi-binding per tasto**: un tasto può avere fino a **4** binding; il `KeyCap` divide
+      lo sfondo in riquadri (1 pieno, 2 sopra/sotto, 3 = due in alto + fascia in basso, 4 = griglia
+      2×2), un colore per mod.
+    - **Selezione azioni per mod** (fatto): il dialog del tasto non usa più testo libero ma un
+      **Combobox** con le azioni reali della mod selezionata (da `scan_keybinds`), ricercabile per
+      label; fallback a input libero per mod senza keybind nei lang, azioni vanilla
+      ([`keybind-template.ts`](src/lib/keybind-template.ts) `vanillaActions()`) per le categorie non-mod.
+      Il binding memorizza sia `action` (label) sia `actionKey` (chiave `key.*`, opzionale →
+      retrocompatibile) — quest'ultima serve all'export.
+    - **Export config** (fatto per `options.txt`): bottone **Export** nella barra mappe → dialog
+      (mappa/formato/destinazione). Vedi "Export keybind" nell'architettura. Il **keyset** è
+      predisposto come exporter ma disabilitato (formato ancora da definire).
   - **Documents** — l'**albero dei file** di `config`/`kubejs` (lette dalla `workpath` via
     `read_dir_tree`) vive **nella sidebar** ([`nav-files.tsx`](src/components/nav-files.tsx), che usa
     [`file-tree.tsx`](src/components/documents/file-tree.tsx)). Il file selezionato è in Redux
