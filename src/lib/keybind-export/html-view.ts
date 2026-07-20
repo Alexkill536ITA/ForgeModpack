@@ -18,6 +18,7 @@ export const htmlViewExporter: KeybindExporter = {
   label: "Interactive HTML (keyboard view)",
   defaultFileName: "keybinds.html",
   available: true,
+  maps: "per-map",
 
   async build(map: keybindMap, ctx: ExportContext): Promise<ExportResult> {
     const content = buildKeyboardHtml(map, ctx.project.keybindCategories)

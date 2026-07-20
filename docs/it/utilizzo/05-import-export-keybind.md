@@ -7,17 +7,28 @@ che Minecraft o le mod leggono, oppure **importare** keybind da un file già esi
 
 Dalla barra delle mappe, il pulsante **Export** apre una finestra dove scegli:
 
-1. **Quale mappa** esportare.
-2. **Il formato** di destinazione.
+1. **Il formato** di destinazione (si sceglie per primo).
+2. **Quale mappa** esportare — appare solo se il formato lo prevede (vedi sotto).
 3. **Dove salvare** il file (nella cartella di lavoro o in una posizione a tua scelta).
 
 ```mermaid
 graph LR
-    E["Export"] --> Map["Scegli mappa"]
-    Map --> Fmt["Scegli formato"]
-    Fmt --> Dest["Scegli destinazione"]
+    E["Export"] --> Fmt["Scegli formato"]
+    Fmt --> Map["Scegli mappa<br/>(se previsto)"]
+    Map --> Dest["Scegli destinazione"]
     Dest --> Write["Scrive il file"]
 ```
+
+A seconda del formato, la scelta della mappa cambia:
+
+| Formato | Scelta mappa |
+|---------|--------------|
+| **Keyset** (`keybindprofiles.json`) | nessuna: esporta **tutte** le mappe insieme nell'unico file |
+| **Minecraft `options.txt`** | una sola mappa |
+| **HTML / PNG** | una mappa, oppure **All** = un file per ogni mappa |
+
+Con **All** (solo HTML/PNG) puoi salvare i file nella cartella di lavoro o scegliere una **cartella**
+di destinazione.
 
 ### Formato `options.txt` (Minecraft)
 
@@ -34,8 +45,14 @@ Al termine, un messaggio ti dice quante righe sono state scritte ed eventuali **
 - più tasti sulla stessa azione → viene tenuto l'ultimo;
 - **macro** con modificatori → non supportate da `options.txt`, quindi saltate.
 
-> Il formato **keyset** è previsto ma non ancora disponibile: appare disattivato nella lista dei
-> formati.
+### Formato `keyset` (mod Keyset)
+
+Genera l'unico file `config/keybindprofiles.json` della mod
+[Keyset](https://github.com/BeeBoyD/Keyset): **ogni mappa diventa un profilo** all'interno dello stesso
+file, quindi non devi scegliere quale mappa esportare — vengono incluse **tutte**. L'export **rispetta
+i profili già presenti** (es. quelli creati direttamente nel gioco): aggiorna solo quelli con lo stesso
+nome delle tue mappe e lascia intatti gli altri. I tasti non mappabili vengono esportati come "non
+assegnati". A differenza di `options.txt`, qui le **macro** (tasto + modificatore) sono supportate.
 
 ### HTML interattivo e immagine della tastiera
 

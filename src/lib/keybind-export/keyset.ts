@@ -30,7 +30,8 @@ const MODIFIER_TOKEN: Record<macroModifier, string> = {
 //   }
 // - la CHIAVE di ogni binding è la translation key dell'AZIONE (`key.*`, il nostro
 //   `keybind.actionKey`); `key` è il tasto premuto (`key.keyboard.*`/`key.mouse.*`,
-//   il nostro `toMinecraftInput`). `key` viene OMESSO se il tasto è "unbound".
+//   il nostro `toMinecraftInput`). `key` viene OMESSO se il tasto è "unbound"
+//   (anche quando `toMinecraftInput` non riesce a mappare il tasto → UNMAPPED).
 // - `modifiers` è sempre presente (SHIFT/CTRL/ALT); noi non modelliamo i
 //   modificatori quindi resta `[]`.
 // - `sticky:true` marca i bind come personalizzati dall'utente: tutti i nostri
@@ -72,22 +73,37 @@ type BuildStats = {
 
 const newStats = (): BuildStats => ({ skippedNoKey: 0, unmapped: 0, collisions: 0, written: 0 })
 
-// Slug stabile per l'id del profilo (chiave nella mappa `profiles`).
+// Costruisce un keystroke nel formato del mod. Se il tasto non è mappabile
+// (`UNMAPPED`), il keystroke è "unbound": il campo `key` viene OMESSO, esattamente
+// come fa il codec del mod (`if (!keyStroke.isUnbound()) addProperty("key", ...)`).
+// `sticky:true` marca i bind come personalizzati (tutti provengono dal modpack).
+function makeStroke(code: string, modifiers: string[], stats: BuildStats): KeysetKeyStroke {
+  if (code === UNMAPPED) {
+    stats.unmapped++
+    return { modifiers, sticky: true }
+  }
+  return { key: code, modifiers, sticky: true }
+}
+
+// Slug stabile per l'id del profilo (chiave nella mappa `profiles`). Replica lo
+// `slugify` del mod (KeysetProfiles.slugify): separatore `-`, così l'id resta
+// invariato quando il mod ri-normalizza in lettura.
 function toProfileId(name: string): string {
   const slug = name
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
   return slug || "profile"
 }
 
-// id univoco a partire da uno slug base, evitando collisioni con `used`.
+// id univoco a partire da uno slug base, evitando collisioni con `used`. Il mod
+// usa il suffisso `-N` (uniqueProfileId), quindi lo replichiamo.
 function uniqueId(base: string, used: Set<string>): string {
   if (!used.has(base)) return base
   let i = 2
-  while (used.has(`${base}_${i}`)) i++
-  return `${base}_${i}`
+  while (used.has(`${base}-${i}`)) i++
+  return `${base}-${i}`
 }
 
 // Costruisce i binding di un profilo da una keybindMap, ordinati per chiave
@@ -104,9 +120,8 @@ function buildBindings(map: keybindMap, stats: BuildStats): Record<string, Keyse
       continue
     }
     const code = toMinecraftInput(kb.key)
-    if (code === UNMAPPED) stats.unmapped++
     if (byAction.has(action)) stats.collisions++
-    byAction.set(action, { key: code, modifiers: [], sticky: true })
+    byAction.set(action, makeStroke(code, [], stats))
   }
   for (const mc of map.macros ?? []) {
     const action = mc.actionKey?.trim()
@@ -115,9 +130,8 @@ function buildBindings(map: keybindMap, stats: BuildStats): Record<string, Keyse
       continue
     }
     const code = toMinecraftInput(mc.key)
-    if (code === UNMAPPED) stats.unmapped++
     if (byAction.has(action)) stats.collisions++
-    byAction.set(action, { key: code, modifiers: [MODIFIER_TOKEN[mc.modifier]], sticky: true })
+    byAction.set(action, makeStroke(code, [MODIFIER_TOKEN[mc.modifier]], stats))
   }
   stats.written += byAction.size
   const sorted: Record<string, KeysetKeyStroke> = {}
@@ -150,7 +164,7 @@ function warningsFromStats(stats: BuildStats, warnings: string[]): void {
   if (stats.skippedNoKey)
     warnings.push(`${stats.skippedNoKey} keybind without a translation key were skipped.`)
   if (stats.unmapped)
-    warnings.push(`${stats.unmapped} key(s) could not be mapped and were written as 'unknown'.`)
+    warnings.push(`${stats.unmapped} key(s) could not be mapped and were exported as unbound.`)
   if (stats.collisions)
     warnings.push(`${stats.collisions} action(s) bound to multiple keys: only the last was kept.`)
 }
@@ -164,6 +178,7 @@ export const keysetExporter: KeybindExporter = {
   label: "Keyset mod (keybindprofiles.json)",
   defaultFileName: FILE_NAME,
   available: true,
+  maps: "all-in-one",
 
   // Esporta una singola mappa come profilo, con MERGE nel file esistente
   // (preserva gli altri profili, incluso il "default" della mod).

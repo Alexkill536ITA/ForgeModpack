@@ -17,6 +17,7 @@ export const imagePngExporter: KeybindExporter = {
   label: "Image (PNG)",
   defaultFileName: "keybinds.png",
   available: true,
+  maps: "per-map",
   image: true,
 
   async build(map: keybindMap, ctx: ExportContext): Promise<ExportResult> {

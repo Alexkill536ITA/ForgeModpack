@@ -21,17 +21,27 @@ export interface ExportResult {
   writtenLines: number   // numero di righe keybind prodotte (per il toast)
 }
 
+// Come l'exporter tratta le mappe multiple del progetto (guida la UI del dialog):
+// - "all-in-one": esporta SEMPRE tutte le mappe in un UNICO file (formato
+//   multi-profilo come keyset). Nessuna scelta di mappa: la UI chiama `buildAll`.
+// - "single": esporta UNA sola mappa alla volta (es. options.txt, che fa merge in
+//   un file vanilla a nome fisso). Il selettore mappa non offre l'opzione "all".
+// - "per-map": esporta una mappa alla volta, oppure "all" = un file PER mappa
+//   (es. HTML/PNG). Il selettore mappa offre anche l'opzione "all".
+export type ExporterMapMode = "all-in-one" | "single" | "per-map"
+
 export interface KeybindExporter {
   id: string               // "options-txt" | "keyset" | "html-view" | "image-png"
   label: string            // etichetta mostrata nel dialog
   defaultFileName: string  // "options.txt"
   available: boolean       // false = disabilitato in UI (formato non pronto)
+  maps: ExporterMapMode    // vedi ExporterMapMode
   // Se true, `content` NON è testo da scrivere direttamente ma il markup SVG da
   // rasterizzare in immagine (PNG) lato UI, prima della scrittura binaria.
   image?: boolean
   build: (map: keybindMap, ctx: ExportContext) => Promise<ExportResult>
-  // Opzionale: esporta TUTTE le mappe in un solo file (formati multi-profilo
-  // come keyset, dove ogni keybindMap diventa un profilo). Se assente, la UI
-  // esporta una singola mappa alla volta via `build`.
+  // Richiesto per `maps === "all-in-one"`: esporta TUTTE le mappe in un solo file
+  // (ogni keybindMap diventa un profilo). Per gli altri modi la UI esporta le
+  // singole mappe via `build`.
   buildAll?: (maps: keybindMap[], ctx: ExportContext) => Promise<ExportResult>
 }

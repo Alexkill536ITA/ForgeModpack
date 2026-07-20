@@ -26,16 +26,33 @@ mostrati in UI; `getExporter(id)` li recupera.
 
 | Campo | Significato |
 |-------|-------------|
-| `id` | `"options-txt"` \| `"keyset"` |
+| `id` | `"options-txt"` \| `"html-view"` \| `"image-png"` \| `"keyset"` |
 | `label` | Etichetta nel dialog |
 | `defaultFileName` | Es. `options.txt` |
 | `available` | `false` = disabilitato in UI (formato non pronto) |
+| `maps` | `ExporterMapMode`: `"all-in-one"` \| `"single"` \| `"per-map"` (vedi sotto) |
+| `image?` | Se `true`, `content` è markup SVG da rasterizzare in PNG lato UI |
 | `build(map, ctx)` | Esporta una singola mappa → `ExportResult` |
-| `buildAll?(maps, ctx)` | Opzionale: esporta tutte le mappe in un file (formati multi-profilo) |
+| `buildAll?(maps, ctx)` | Richiesto per `maps === "all-in-one"`: esporta tutte le mappe in un file |
 
 `ExportResult`: `{ content, suggestedPath, warnings[], writtenLines }`. `ExportContext`:
 `{ project, workpath, readExisting(absPath) }` (`readExisting` iniettata dalla UI per gli exporter
 che fanno merge).
+
+### Comportamento del dialog: formato → mappa
+
+Nel dialog ([`export-dialog.tsx`](../../../src/components/keybinds/export-dialog.tsx)) si sceglie
+**prima il formato**; il campo `maps` dell'exporter determina se e come compare il selettore di mappa:
+
+| `ExporterMapMode` | Selettore mappa | Opzione "All" | Comportamento | Esempi |
+|-------------------|-----------------|---------------|---------------|--------|
+| `all-in-one` | nascosto | — | esporta **sempre tutte** le mappe in un unico file (`buildAll`) | `keyset` |
+| `single` | mappa singola | no | esporta una sola mappa (`build`) | `options-txt` |
+| `per-map` | mappa singola | sì | una mappa, oppure "All" = un file **per** mappa | `html-view`, `image-png` |
+
+Con `per-map` + "All" la UI cicla `build` su ogni mappa e scrive un file per mappa: nella workpath,
+oppure in una **cartella** scelta con `openDialog({ directory: true })` (la destinazione diventa
+"Scegli cartella…"). Toast riepilogativo `exportSuccessMulti`.
 
 ### `options-txt` (attivo)
 
@@ -125,10 +142,44 @@ flowchart LR
     Raster --> Bin["writeFile → .png"]
 ```
 
-### `keyset` (placeholder)
+### `keyset` (attivo)
 
-[`keyset.ts`](../../../src/lib/keybind-export/keyset.ts) è predisposto ma `available: false` (formato ancora
-da definire).
+[`keyset.ts`](../../../src/lib/keybind-export/keyset.ts) esporta il file della mod
+[BeeBoyD/Keyset](https://github.com/BeeBoyD/Keyset): un **unico** JSON `config/keybindprofiles.json`
+multi-profilo (`maps: "all-in-one"` → nessuna scelta di mappa, si esportano **tutte**). Ogni
+`keybindMap` diventa un **profilo**.
+
+```jsonc
+{
+  "schema": 1,                 // = KeysetCoreMetadata.CONFIG_SCHEMA
+  "activeProfile": "<id>",      // primo profilo esportato se non c'è un active valido
+  "profiles": {
+    "<id>": {                   // slug del nome mappa (separatore "-", come slugify del mod)
+      "name": "<nome mappa>",
+      "builtIn": false,
+      "bindings": {
+        "<actionKey>": {        // chiave = translation key dell'azione (keybind.actionKey)
+          "key": "<inputCode>", // key.keyboard.*/key.mouse.*; OMESSO se unbound/non mappabile
+          "modifiers": [],       // sempre presente; "SHIFT"/"CTRL"/"ALT" per le macro
+          "sticky": true         // marca i bind come personalizzati dall'utente
+        }
+      }
+    }
+  }
+}
+```
+
+Il formato è **verificato contro il codec autorevole del mod**
+(`modules/core/.../profile/KeysetProfilesJson.java`): ordine dei campi, `modifiers` sempre presente,
+`sticky` scritto solo se `true`, pretty-print a 2 spazi senza escape HTML. **Vincolo critico**: il mod
+accetta solo `schema` `0` (legacy) o esattamente `CONFIG_SCHEMA` (attualmente `1`), altrimenti rifiuta
+il file → il numero non va cambiato a caso. `key` viene **omesso** quando `toMinecraftInput` ritorna
+`UNMAPPED` (binding unbound, forma canonica del mod).
+
+L'export fa **merge conservativo**: `parseExisting` legge il file esistente, i profili ri-generati
+sovrascrivono per `id` gli omonimi, i profili non gestiti (es. il `default` del mod) restano intatti.
+`buildAll` deduplica gli id nel batch (suffisso `-N`) così due mappe con nome simile non si
+sovrascrivono. In lettura il mod ri-normalizza gli id e inietta comunque un profilo `default`.
 
 ## Import
 

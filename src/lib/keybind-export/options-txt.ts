@@ -11,6 +11,7 @@ export const optionsTxtExporter: KeybindExporter = {
   label: "Minecraft options.txt",
   defaultFileName: "options.txt",
   available: true,
+  maps: "single",
 
   async build(map: keybindMap, ctx: ExportContext): Promise<ExportResult> {
     const warnings: string[] = []

@@ -26,16 +26,33 @@ shown in the UI; `getExporter(id)` retrieves them.
 
 | Field | Meaning |
 |-------|-------------|
-| `id` | `"options-txt"` \| `"keyset"` |
+| `id` | `"options-txt"` \| `"html-view"` \| `"image-png"` \| `"keyset"` |
 | `label` | Label in the dialog |
 | `defaultFileName` | E.g. `options.txt` |
 | `available` | `false` = disabled in UI (format not ready) |
+| `maps` | `ExporterMapMode`: `"all-in-one"` \| `"single"` \| `"per-map"` (see below) |
+| `image?` | If `true`, `content` is SVG markup to rasterize to PNG on the UI side |
 | `build(map, ctx)` | Exports a single map → `ExportResult` |
-| `buildAll?(maps, ctx)` | Optional: exports all maps into one file (multi-profile formats) |
+| `buildAll?(maps, ctx)` | Required for `maps === "all-in-one"`: exports all maps into one file |
 
 `ExportResult`: `{ content, suggestedPath, warnings[], writtenLines }`. `ExportContext`:
 `{ project, workpath, readExisting(absPath) }` (`readExisting` is injected by the UI for exporters
 that perform a merge).
+
+### Dialog behavior: format → map
+
+In the dialog ([`export-dialog.tsx`](../../../src/components/keybinds/export-dialog.tsx)) you pick the
+**format first**; the exporter's `maps` field decides whether and how the map selector appears:
+
+| `ExporterMapMode` | Map selector | "All" option | Behavior | Examples |
+|-------------------|--------------|--------------|----------|----------|
+| `all-in-one` | hidden | — | **always** exports all maps into one file (`buildAll`) | `keyset` |
+| `single` | single map | no | exports a single map (`build`) | `options-txt` |
+| `per-map` | single map | yes | one map, or "All" = one file **per** map | `html-view`, `image-png` |
+
+With `per-map` + "All" the UI loops `build` over each map and writes one file per map: into the
+workpath, or into a **folder** picked with `openDialog({ directory: true })` (the destination becomes
+"Choose folder…"). Summary toast `exportSuccessMulti`.
 
 ### `options-txt` (active)
 
@@ -125,10 +142,44 @@ flowchart LR
     Raster --> Bin["writeFile → .png"]
 ```
 
-### `keyset` (placeholder)
+### `keyset` (active)
 
-[`keyset.ts`](../../../src/lib/keybind-export/keyset.ts) is set up but `available: false` (format still
-to be defined).
+[`keyset.ts`](../../../src/lib/keybind-export/keyset.ts) exports the file of the
+[BeeBoyD/Keyset](https://github.com/BeeBoyD/Keyset) mod: a **single** multi-profile JSON
+`config/keybindprofiles.json` (`maps: "all-in-one"` → no map choice, **all** maps are exported). Each
+`keybindMap` becomes a **profile**.
+
+```jsonc
+{
+  "schema": 1,                 // = KeysetCoreMetadata.CONFIG_SCHEMA
+  "activeProfile": "<id>",      // first exported profile if there is no valid active one
+  "profiles": {
+    "<id>": {                   // slug of the map name ("-" separator, like the mod's slugify)
+      "name": "<map name>",
+      "builtIn": false,
+      "bindings": {
+        "<actionKey>": {        // key = the action's translation key (keybind.actionKey)
+          "key": "<inputCode>", // key.keyboard.*/key.mouse.*; OMITTED if unbound/non-mappable
+          "modifiers": [],       // always present; "SHIFT"/"CTRL"/"ALT" for macros
+          "sticky": true         // marks the bindings as user-customized
+        }
+      }
+    }
+  }
+}
+```
+
+The format is **verified against the mod's authoritative codec**
+(`modules/core/.../profile/KeysetProfilesJson.java`): field order, `modifiers` always present,
+`sticky` written only when `true`, 2-space pretty-print with no HTML escaping. **Critical constraint**:
+the mod only accepts `schema` `0` (legacy) or exactly `CONFIG_SCHEMA` (currently `1`), otherwise it
+rejects the file → the number must not be changed arbitrarily. `key` is **omitted** when
+`toMinecraftInput` returns `UNMAPPED` (unbound binding, the mod's canonical form).
+
+The export does a **conservative merge**: `parseExisting` reads the existing file, regenerated profiles
+overwrite same-`id` ones, unmanaged profiles (e.g. the mod's `default`) stay intact. `buildAll`
+deduplicates ids within the batch (suffix `-N`) so two maps with similar names don't overwrite each
+other. On read the mod re-normalizes ids and always injects a `default` profile.
 
 ## Import
 

@@ -7,17 +7,28 @@ that Minecraft or the mods can read, or **import** keybinds from an existing fil
 
 From the maps bar, the **Export** button opens a window where you choose:
 
-1. **Which map** to export.
-2. **The target format**.
+1. **The target format** (chosen first).
+2. **Which map** to export — appears only if the format supports it (see below).
 3. **Where to save** the file (in the workspace folder or in a location of your choice).
 
 ```mermaid
 graph LR
-    E["Export"] --> Map["Choose map"]
-    Map --> Fmt["Choose format"]
-    Fmt --> Dest["Choose destination"]
+    E["Export"] --> Fmt["Choose format"]
+    Fmt --> Map["Choose map<br/>(if applicable)"]
+    Map --> Dest["Choose destination"]
     Dest --> Write["Writes the file"]
 ```
+
+Depending on the format, the map choice changes:
+
+| Format | Map choice |
+|--------|------------|
+| **Keyset** (`keybindprofiles.json`) | none: exports **all** maps together into the single file |
+| **Minecraft `options.txt`** | a single map |
+| **HTML / PNG** | one map, or **All** = one file per map |
+
+With **All** (HTML/PNG only) you can save the files into the workspace folder or pick a destination
+**folder**.
 
 ### `options.txt` format (Minecraft)
 
@@ -34,8 +45,14 @@ When finished, a message tells you how many lines were written and any **warning
 - multiple keys on the same action → the last one is kept;
 - **macros** with modifiers → not supported by `options.txt`, so skipped.
 
-> The **keyset** format is planned but not yet available: it appears disabled in the list of
-> formats.
+### `keyset` format (Keyset mod)
+
+Generates the single `config/keybindprofiles.json` file of the
+[Keyset](https://github.com/BeeBoyD/Keyset) mod: **each map becomes a profile** inside the same file,
+so you don't pick which map to export — **all** of them are included. The export **respects existing
+profiles** (e.g. those created directly in-game): it only updates the ones with the same name as your
+maps and leaves the others intact. Non-mappable keys are exported as "unbound". Unlike `options.txt`,
+here **macros** (key + modifier) are supported.
 
 ### Interactive HTML and keyboard image
 

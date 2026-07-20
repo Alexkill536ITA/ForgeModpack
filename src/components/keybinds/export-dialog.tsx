@@ -2,8 +2,8 @@
 
 import { useState } from "react"
 import { writeTextFile, writeFile, readTextFile, exists } from "@tauri-apps/plugin-fs"
-import { save } from "@tauri-apps/plugin-dialog"
-import { basename } from "@tauri-apps/api/path"
+import { save, open as openDialog } from "@tauri-apps/plugin-dialog"
+import { basename, join } from "@tauri-apps/api/path"
 import { toast } from "sonner"
 import { DownloadIcon } from "lucide-react"
 
@@ -66,25 +66,43 @@ export function ExportDialog({
 }) {
   const { t } = useTranslation()
   const maps = project.keybindMaps
-  // Selezione mappa: indice come stringa, oppure "all" (solo per exporter
-  // multi-profilo che espongono `buildAll`).
-  const [mapSel, setMapSel] = useState<string>(String(defaultMapIndex))
+  // Il formato si sceglie PER PRIMO: guida se/come compare il selettore mappa.
   const [exporterId, setExporterId] = useState(EXPORTERS[0]?.id ?? "")
+  // Selezione mappa: indice come stringa, oppure "all". Ha senso solo quando
+  // l'exporter espone il selettore (vedi `mapMode`).
+  const [mapSel, setMapSel] = useState<string>(String(defaultMapIndex))
   const [dest, setDest] = useState<"workpath" | "choose">("workpath")
   const [busy, setBusy] = useState(false)
 
   const exporter = getExporter(exporterId)
-  const supportsAll = !!exporter?.buildAll
-  // "all" è valido solo se l'exporter lo supporta; altrimenti ripiega su una
-  // mappa. Se cambia il set di mappe mentre il dialog è chiuso, riallinea.
+  const mapMode = exporter?.maps ?? "single"
+  // Il selettore mappa compare per "single" e "per-map"; per "all-in-one"
+  // (keyset) si esportano SEMPRE tutte le mappe, senza scelta.
+  const showMapSelect = mapMode !== "all-in-one"
+  // L'opzione "All" nel selettore è solo per "per-map" (HTML/PNG): genera un
+  // file per mappa. Su "single" (options.txt) non è ammessa.
+  const allowAll = mapMode === "per-map"
+  // Se selezionato "all" ma l'exporter non lo consente, ripiega su una mappa;
+  // riallinea anche se il set di mappe è cambiato a dialog chiuso.
   const effectiveSel =
     mapSel === "all"
-      ? supportsAll
+      ? allowAll
         ? "all"
         : "0"
       : Number(mapSel) < maps.length
         ? mapSel
         : "0"
+  // Esportazione multi-file (un file per mappa): solo "per-map" con "all".
+  const isMultiFile = mapMode === "per-map" && effectiveSel === "all"
+
+  // Scrive un ExportResult su disco (testo o PNG rasterizzato) a `target`.
+  async function writeResult(target: string, res: { content: string }) {
+    if (exporter?.image) {
+      await writeFile(target, await svgToPngBytes(res.content))
+    } else {
+      await writeTextFile(target, res.content)
+    }
+  }
 
   async function handleExport() {
     if (!exporter || !exporter.available || maps.length === 0) return
@@ -95,8 +113,39 @@ export function ExportDialog({
         workpath: project.configs.workpath,
         readExisting: async (p) => ((await exists(p)) ? await readTextFile(p) : null),
       }
+
+      // --- "All" per-map: un file per mappa (HTML/PNG) ---
+      if (isMultiFile) {
+        // Destinazione = una CARTELLA (i nomi file derivano da ogni mappa).
+        let targetDir: string | null = null
+        if (dest === "choose") {
+          const chosen = await openDialog({ directory: true, defaultPath: ctx.workpath })
+          if (!chosen || Array.isArray(chosen)) {
+            setBusy(false)
+            return // annullato
+          }
+          targetDir = chosen
+        }
+        const warnings: string[] = []
+        let written = 0
+        for (const map of maps) {
+          const res = await exporter.build(map, ctx)
+          const target = targetDir ? await join(targetDir, await basename(res.suggestedPath)) : res.suggestedPath
+          await writeResult(target, res)
+          warnings.push(...res.warnings)
+          written++
+        }
+        toast.success(t("keybindIo.exportSuccessMulti", { count: written }), {
+          style: toastStyles.success,
+        })
+        for (const w of warnings) toast.warning(w, { style: toastStyles.warning })
+        onOpenChange(false)
+        return
+      }
+
+      // --- File singolo: tutte le mappe in uno (all-in-one) o una sola mappa ---
       const res =
-        effectiveSel === "all" && exporter.buildAll
+        mapMode === "all-in-one" && exporter.buildAll
           ? await exporter.buildAll(maps, ctx)
           : await exporter.build(maps[Number(effectiveSel)], ctx)
 
@@ -110,12 +159,7 @@ export function ExportDialog({
         target = chosen
       }
 
-      if (exporter.image) {
-        // `res.content` è l'SVG: lo rasterizziamo in PNG e scriviamo i byte.
-        await writeFile(target, await svgToPngBytes(res.content))
-      } else {
-        await writeTextFile(target, res.content)
-      }
+      await writeResult(target, res)
       const name = await basename(target)
       toast.success(t("keybindIo.exportSuccess", { count: res.writtenLines, name }), {
         style: toastStyles.success,
@@ -144,21 +188,6 @@ export function ExportDialog({
         ) : (
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>{t("keybindIo.map")}</Label>
-              <Select value={effectiveSel} onValueChange={setMapSel}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {supportsAll && <SelectItem value="all">{t("keybindIo.allMaps")}</SelectItem>}
-                  {maps.map((m, i) => (
-                    <SelectItem key={i} value={String(i)}>{m.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
               <Label>{t("keybindIo.format")}</Label>
               <Select value={exporterId} onValueChange={setExporterId}>
                 <SelectTrigger className="w-full">
@@ -174,6 +203,23 @@ export function ExportDialog({
               </Select>
             </div>
 
+            {showMapSelect && (
+              <div className="space-y-2">
+                <Label>{t("keybindIo.map")}</Label>
+                <Select value={effectiveSel} onValueChange={setMapSel}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allowAll && <SelectItem value="all">{t("keybindIo.allMaps")}</SelectItem>}
+                    {maps.map((m, i) => (
+                      <SelectItem key={i} value={String(i)}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label>{t("keybindIo.destination")}</Label>
               <Select value={dest} onValueChange={(v) => setDest(v as "workpath" | "choose")}>
@@ -181,8 +227,14 @@ export function ExportDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="workpath">{t("keybindIo.projectFolder", { defaultFileName: exporter?.defaultFileName ?? "" })}</SelectItem>
-                  <SelectItem value="choose">{t("keybindIo.chooseFile")}</SelectItem>
+                  <SelectItem value="workpath">
+                    {isMultiFile
+                      ? t("keybindIo.projectFolderAll")
+                      : t("keybindIo.projectFolder", { defaultFileName: exporter?.defaultFileName ?? "" })}
+                  </SelectItem>
+                  <SelectItem value="choose">
+                    {isMultiFile ? t("keybindIo.chooseFolder") : t("keybindIo.chooseFile")}
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>

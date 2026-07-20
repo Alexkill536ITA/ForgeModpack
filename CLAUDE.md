@@ -178,10 +178,16 @@ costringendo a generare una versione nuova prima di ogni build.
   non scrivono su disco — la scrittura + toast resta nella UI). `options-txt.ts` è l'exporter
   concreto per `options.txt` di Minecraft; `merge-options.ts` fa il **merge conservativo** (preserva
   le righe non-`key_*` e i bind di mod non gestite, sovrascrive/appende i propri, mantiene l'EOL
-  CRLF/LF). `keyset.ts` è un placeholder disabilitato (`available:false`, formato TBD). La
-  traduzione id-tasto → input code Minecraft è in [`mc-keycodes.ts`](src/lib/mc-keycodes.ts)
-  (`toMinecraftInput`, fallback `key.keyboard.unknown` per i tasti IT accentati). UI in
-  [`export-dialog.tsx`](src/components/keybinds/export-dialog.tsx) (scelta mappa/formato/destinazione).
+  CRLF/LF). `keyset.ts` è l'exporter **attivo** per la mod BeeBoyD/Keyset (`config/keybindprofiles.json`,
+  multi-profilo: ogni mappa = un profilo, merge conservativo); il formato è verificato contro il codec
+  del mod (`schema` accettato solo `0` o `1=CONFIG_SCHEMA`, `key` omesso se unbound, slug id con `-`).
+  `html-view.ts`/`image-png.ts` esportano la tastiera come HTML interattivo/PNG (`keyboard-visual.ts`).
+  La traduzione id-tasto → input code Minecraft è in [`mc-keycodes.ts`](src/lib/mc-keycodes.ts)
+  (`toMinecraftInput`, fallback `key.keyboard.unknown` per i tasti IT accentati). Ogni exporter dichiara
+  `maps: "all-in-one" | "single" | "per-map"`; UI in
+  [`export-dialog.tsx`](src/components/keybinds/export-dialog.tsx): si sceglie **prima il formato**, poi
+  il selettore mappa compare in base a `maps` (keyset=tutte, options.txt=singola, html/png=singola o
+  "All"=un file per mappa). L'export multi-file può scrivere in una cartella scelta (`openDialog`).
 - **File explorer (Rust)**: [`src-tauri/src/files.rs`](src-tauri/src/files.rs) espone `read_dir_tree(dir)`
   che legge **ricorsivamente** una directory e ritorna un albero `FileNode[]` (`name`, `path`
   assoluto, `isDir`, `children`), cartelle prima dei file e in ordine alfabetico; i symlink non
@@ -237,9 +243,9 @@ costringendo a generare una versione nuova prima di ogni build.
       ([`keybind-template.ts`](src/lib/keybind-template.ts) `vanillaActions()`) per le categorie non-mod.
       Il binding memorizza sia `action` (label) sia `actionKey` (chiave `key.*`, opzionale →
       retrocompatibile) — quest'ultima serve all'export.
-    - **Export config** (fatto per `options.txt`): bottone **Export** nella barra mappe → dialog
-      (mappa/formato/destinazione). Vedi "Export keybind" nell'architettura. Il **keyset** è
-      predisposto come exporter ma disabilitato (formato ancora da definire).
+    - **Export config** (fatto): bottone **Export** nella barra mappe → dialog (formato prima, poi
+      mappa/destinazione). Vedi "Export keybind" nell'architettura. Formati attivi: `options.txt`,
+      **keyset** (`keybindprofiles.json`, tutte le mappe), HTML interattivo e PNG.
   - **Documents** — l'**albero dei file** di `config`/`kubejs` (lette dalla `workpath` via
     `read_dir_tree`) vive **nella sidebar** ([`nav-files.tsx`](src/components/nav-files.tsx), che usa
     [`file-tree.tsx`](src/components/documents/file-tree.tsx)). Il file selezionato è in Redux
