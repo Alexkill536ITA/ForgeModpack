@@ -33,8 +33,7 @@ metadata online (Minecraft and modloader). Everything lives in a project file
 
 <div align="center">
 
-<!-- TODO: replace with real screenshots/GIFs -->
-![Application screenshot](docs/screenshot.png)
+![Application screenshot](docs/screenshot.gif)
 
 *ForgeModpack dashboard — placeholder, replace with a real screenshot.*
 

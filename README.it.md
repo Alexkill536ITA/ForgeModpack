@@ -33,8 +33,7 @@ i metadati delle versioni (Minecraft e modloader). Il tutto vive in un file di p
 
 <div align="center">
 
-<!-- TODO: sostituire con screenshot/GIF reali -->
-![Screenshot dell'applicazione](docs/screenshot.png)
+![Application screenshot](docs/screenshot.gif)
 
 *Dashboard di ForgeModpack — placeholder, sostituire con uno screenshot reale.*
 
