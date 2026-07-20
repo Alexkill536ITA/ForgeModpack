@@ -10,7 +10,7 @@
 [![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB.svg?logo=tauri)](https://tauri.app)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000.svg?logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg?logo=typescript)](https://www.typescriptlang.org)
-[![License](https://img.shields.io/badge/license-TODO-lightgrey.svg)](#licenza)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 </div>
 
@@ -170,8 +170,9 @@ Consulta la [documentazione tecnica](docs/it/tecnica/README.md) per l'architettu
 
 ## Licenza
 
-<!-- TODO: definire e aggiungere un file LICENSE alla radice del repo -->
-Licenza da definire. *(Aggiungere qui il tipo di licenza e un file `LICENSE`.)*
+Distribuito con licenza **MIT**. Vedi il file [`LICENSE`](LICENSE) per il testo completo.
+
+© 2026 Alexkill536ITA
 
 ---
 
