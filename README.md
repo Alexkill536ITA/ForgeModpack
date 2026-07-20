@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="src-tauri/icons/icon.png" alt="Logo ForgeModpack" width="1024" height="1024" />
+<img src="src-tauri/icons/icon.png" alt="Logo ForgeModpack" width="512" height="512" />
 
 # ForgeModpack
 
