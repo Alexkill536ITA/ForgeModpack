@@ -5,6 +5,7 @@ import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs"
 import { SaveIcon, FilePenIcon, CircleCheckIcon, CircleXIcon, TriangleAlertIcon } from "lucide-react"
 import { toast } from "sonner"
 
+import { useTranslation } from "@/src/i18n/i18n-provider"
 import { ProjectGate } from "../../components/project-gate"
 import { CodeEditor, usePageSaveShortcut, type CursorInfo, type Diagnostics } from "../../components/documents/code-editor"
 import type { LineChange } from "../../lib/line-diff"
@@ -19,6 +20,7 @@ import { toastStyles } from "../../model/models"
 
 function DocumentsEditor() {
   const dispatch = useAppDispatch()
+  const { t } = useTranslation()
   const openFile = useAppSelector((s) => s.documents.openFile)
 
   const [content, setContent] = useState<string | null>(null) // contenuto su disco
@@ -52,7 +54,7 @@ function DocumentsEditor() {
     // Cambio file con modifiche non salvate: chiedi conferma, altrimenti ripristina
     // la selezione precedente nello store.
     if (content !== null && draft !== content && prevFile.current) {
-      if (!confirm("Discard unsaved changes in the current file?")) {
+      if (!confirm(t("documents.discardConfirm"))) {
         dispatch(openDocument(prevFile.current))
         return
       }
@@ -68,12 +70,12 @@ function DocumentsEditor() {
       })
       .catch((err) => {
         console.error(err)
-        toast.error("Could not open file", { style: toastStyles.destructive })
+        toast.error(t("documents.openFailed"), { style: toastStyles.destructive })
         setContent(null)
         setDraft("")
       })
       .finally(() => setLoading(false))
-  }, [openFile, content, draft, dispatch])
+  }, [openFile, content, draft, dispatch, t])
 
   const handleSave = useCallback(async () => {
     if (!openFile || saving || content === null) return
@@ -81,14 +83,14 @@ function DocumentsEditor() {
     try {
       await writeTextFile(openFile.path, draft)
       setContent(draft)
-      toast.success(`Saved ${openFile.name}`, { style: toastStyles.success })
+      toast.success(t("documents.saved", { name: openFile.name }), { style: toastStyles.success })
     } catch (err) {
       console.error(err)
-      toast.error("Could not save file", { style: toastStyles.destructive })
+      toast.error(t("documents.saveFailed"), { style: toastStyles.destructive })
     } finally {
       setSaving(false)
     }
-  }, [openFile, draft, saving, content])
+  }, [openFile, draft, saving, content, t])
 
   // Ctrl/Cmd+S salva anche quando il focus è fuori dall'editor.
   usePageSaveShortcut(() => void handleSave(), dirty)
@@ -101,9 +103,9 @@ function DocumentsEditor() {
             <EmptyMedia variant="icon">
               <FilePenIcon />
             </EmptyMedia>
-            <EmptyTitle>No file open</EmptyTitle>
+            <EmptyTitle>{t("documents.noFileOpen")}</EmptyTitle>
             <EmptyDescription>
-              Pick a file from the Files tree in the sidebar to view and edit it.
+              {t("documents.noFileHint")}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -119,7 +121,7 @@ function DocumentsEditor() {
       <div className="flex items-center justify-between border-b px-3 py-2">
         <span className="truncate text-sm text-muted-foreground">
           {openFile.name}
-          {dirty && <span className="ml-2 text-amber-400">● unsaved</span>}
+          {dirty && <span className="ml-2 text-amber-400">● {t("documents.unsaved")}</span>}
         </span>
         <Button
           size="sm"
@@ -128,7 +130,7 @@ function DocumentsEditor() {
           disabled={!dirty || saving}
         >
           {saving ? <Spinner className="size-4" /> : <SaveIcon className="size-4" />}
-          Save
+          {t("documents.save")}
         </Button>
       </div>
       <div className="relative flex-1">
@@ -157,18 +159,18 @@ function DocumentsEditor() {
           {validated &&
             (diagnostics.errors > 0 ? (
               <span className="flex items-center gap-1 font-medium text-red-400">
-                <CircleXIcon className="size-3.5" /> {diagnostics.errors} error{diagnostics.errors > 1 ? "s" : ""}
+                <CircleXIcon className="size-3.5" /> {t("documents.errors", { count: diagnostics.errors })}
               </span>
             ) : diagnostics.warnings > 0 ? (
               <span className="flex items-center gap-1 font-medium text-amber-400">
-                <TriangleAlertIcon className="size-3.5" /> {diagnostics.warnings} warning{diagnostics.warnings > 1 ? "s" : ""}
+                <TriangleAlertIcon className="size-3.5" /> {t("documents.warnings", { count: diagnostics.warnings })}
               </span>
             ) : (
               <span className="flex items-center gap-1 font-medium text-emerald-400">
-                <CircleCheckIcon className="size-3.5" /> Valid
+                <CircleCheckIcon className="size-3.5" /> {t("documents.valid")}
               </span>
             ))}
-          <span>{cursor.lineCount} lines</span>
+          <span>{t("documents.lines", { count: cursor.lineCount })}</span>
           {(changes.added > 0 || changes.modified > 0 || changes.removed > 0) && (
             <span className="flex items-center gap-2 font-medium">
               {changes.added > 0 && <span className="text-emerald-400">+{changes.added}</span>}
@@ -178,7 +180,7 @@ function DocumentsEditor() {
           )}
         </div>
         <div className="flex items-center gap-4">
-          <span>Ln {cursor.line}, Col {cursor.column}</span>
+          <span>{t("documents.cursor", { line: cursor.line, col: cursor.column })}</span>
           <span className={cn("font-medium uppercase", languageColor(languageFromFilename(openFile.name)))}>
             {languageFromFilename(openFile.name)}
           </span>

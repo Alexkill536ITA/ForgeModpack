@@ -522,6 +522,117 @@ pub fn scan_mods(dir: String) -> Result<Vec<ScannedMod>, String> {
     Ok(mods)
 }
 
+// --- Scansione dei datapack ---
+//
+// Un datapack è un file .zip (o una cartella) con un `pack.mcmeta` alla radice:
+//   { "pack": { "pack_format": <n>, "description": <string|text-component> } }
+// La `description` può essere una stringa semplice o un "text component" JSON
+// (oggetto con `text`/`extra`, o un array di componenti): la appiattiamo a testo.
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScannedDatapack {
+    pub filename: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub pack_format: Option<i64>,
+}
+
+/// Appiattisce un "text component" di Minecraft (stringa, oggetto {text, extra},
+/// o array di componenti) in testo semplice.
+fn text_component_to_string(v: &JsonValue) -> String {
+    match v {
+        JsonValue::String(s) => s.clone(),
+        JsonValue::Array(arr) => arr.iter().map(text_component_to_string).collect(),
+        JsonValue::Object(obj) => {
+            let mut out = String::new();
+            if let Some(t) = obj.get("text").and_then(|x| x.as_str()) {
+                out.push_str(t);
+            }
+            if let Some(extra) = obj.get("extra").and_then(|x| x.as_array()) {
+                for e in extra {
+                    out.push_str(&text_component_to_string(e));
+                }
+            }
+            out
+        }
+        _ => String::new(),
+    }
+}
+
+/// Estrae `description` (testo) e `pack_format` da un pack.mcmeta.
+fn parse_pack_mcmeta(content: &str) -> (Option<String>, Option<i64>) {
+    let v: JsonValue = serde_json::from_str(content).unwrap_or(JsonValue::Null);
+    let pack = v.get("pack");
+    let pack_format = pack.and_then(|p| p.get("pack_format")).and_then(|x| x.as_i64());
+    let description = pack
+        .and_then(|p| p.get("description"))
+        .map(|d| text_component_to_string(d).trim().to_string())
+        .filter(|s| !s.is_empty());
+    (description, pack_format)
+}
+
+/// Legge un singolo datapack (file .zip o cartella con pack.mcmeta). Ritorna
+/// `None` se l'entry non è un datapack valido (nessun pack.mcmeta).
+fn read_datapack(path: &Path) -> Option<ScannedDatapack> {
+    let filename = path.file_name().and_then(|n| n.to_str())?.to_string();
+
+    if path.is_dir() {
+        // Cartella datapack: pack.mcmeta letto dal disco.
+        let content = fs::read_to_string(path.join("pack.mcmeta")).ok()?;
+        let (description, pack_format) = parse_pack_mcmeta(&content);
+        Some(ScannedDatapack {
+            filename: filename.clone(),
+            name: filename,
+            description,
+            pack_format,
+        })
+    } else {
+        // File .zip: pack.mcmeta letto dall'archivio.
+        let is_zip = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("zip"))
+            .unwrap_or(false);
+        if !is_zip {
+            return None;
+        }
+        let file = fs::File::open(path).ok()?;
+        let mut archive = ZipArchive::new(file).ok()?;
+        let content = read_entry(&mut archive, "pack.mcmeta")?;
+        let (description, pack_format) = parse_pack_mcmeta(&content);
+        // Nome senza estensione .zip.
+        let name = if filename.to_lowercase().ends_with(".zip") {
+            filename[..filename.len() - 4].to_string()
+        } else {
+            filename.clone()
+        };
+        Some(ScannedDatapack {
+            filename,
+            name,
+            description,
+            pack_format,
+        })
+    }
+}
+
+/// Comando Tauri: scansiona una directory restituendo i datapack (.zip o
+/// cartelle) con pack.mcmeta. Errore se la dir non esiste (il frontend lo usa
+/// per mostrare lo stato "cartella non trovata").
+#[tauri::command]
+pub fn scan_datapacks(dir: String) -> Result<Vec<ScannedDatapack>, String> {
+    let entries = fs::read_dir(&dir).map_err(|e| e.to_string())?;
+
+    let mut packs: Vec<ScannedDatapack> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter_map(|p| read_datapack(&p))
+        .collect();
+
+    packs.sort_by(|a, b| a.filename.to_lowercase().cmp(&b.filename.to_lowercase()));
+    Ok(packs)
+}
+
 // --- Scansione delle keybind (azioni configurabili) definite da ogni mod ---
 //
 // Le keybind di una mod sono chiavi di traduzione nei file di lingua

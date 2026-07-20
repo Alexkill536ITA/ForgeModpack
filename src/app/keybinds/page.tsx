@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { KeyboardIcon, MouseIcon, PlusIcon, Trash2Icon, MapIcon, XIcon, PencilIcon, SearchIcon, BoxesIcon, TagsIcon, DownloadIcon, UploadIcon, RefreshCcwIcon, ZapIcon } from "lucide-react"
+import { KeyboardIcon, MouseIcon, PlusIcon, Trash2Icon, MapIcon, XIcon, PencilIcon, SearchIcon, BoxesIcon, TagsIcon, DownloadIcon, UploadIcon, RefreshCcwIcon, ZapIcon, LayersIcon } from "lucide-react"
 
 import { ProjectGate } from "../../components/project-gate"
 import { ExportDialog } from "../../components/keybinds/export-dialog"
@@ -72,15 +72,17 @@ import {
   isSpacer,
 } from "../../lib/keyboard-layout"
 import { defaultKeybinds, defaultCategories, defaultTags, vanillaActions } from "../../lib/keybind-template"
+import { useTranslation } from "@/src/i18n/i18n-provider"
 
 const UNIT_REM = 2.5
 const GAP_REM = 0.25
 
-// Etichetta leggibile del motivo per cui un binding è stato saltato in import.
-const REASON_LABEL: Record<ImportIssueReason, string> = {
-  "not-installed": "Mod not installed",
-  unmapped: "Key not on layout",
-  overflow: "Over 4-per-key limit",
+// Mappa il motivo di scarto in import alla sotto-chiave i18n (risolta con t() al
+// punto d'uso: t non può essere chiamata a livello modulo).
+const REASON_KEY: Record<ImportIssueReason, string> = {
+  "not-installed": "notInstalled",
+  unmapped: "unmapped",
+  overflow: "overflow",
 }
 
 // Categorie NON-mod: solo queste mostrano le azioni vanilla nel dialog dei tasti
@@ -121,6 +123,7 @@ function FilterChip({
   onClick: () => void
   onEdit?: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <div
       style={active && color ? { background: color, color: contrastText(color), borderColor: "transparent" } : {}}
@@ -135,7 +138,7 @@ function FilterChip({
         {label}
       </button>
       {onEdit && (
-        <button type="button" onClick={onEdit} className="-mr-1.5 ml-0.5 opacity-60 hover:opacity-100" aria-label={`Edit ${label}`}>
+        <button type="button" onClick={onEdit} className="-mr-1.5 ml-0.5 opacity-60 hover:opacity-100" aria-label={t("keybinds.editLabel", { label })}>
           <PencilIcon className="size-3" />
         </button>
       )}
@@ -145,9 +148,6 @@ function FilterChip({
 
 // Massimo numero di binding assegnabili a un singolo tasto.
 const MAX_BINDINGS = 4
-
-// Etichetta leggibile del modificatore di una macro.
-const MODIFIER_LABEL: Record<macroModifier, string> = { ctrl: "Ctrl", shift: "Shift", alt: "Alt" }
 
 // I tasti modificatori non hanno senso come tasto BASE di una macro: esclusi dal
 // selettore (il modificatore è scelto a parte).
@@ -252,6 +252,7 @@ function KeyCap({
 
 function KeybindsBoard({ project }: { project: project }) {
   const dispatch = useAppDispatch()
+  const { t } = useTranslation()
 
   const [activeMap, setActiveMap] = useState(0)
   const [modFilter, setModFilter] = useState("all")
@@ -485,20 +486,36 @@ function KeybindsBoard({ project }: { project: project }) {
   function removeDraftBinding(index: number) {
     setDraftBindings((prev) => prev.filter((_, i) => i !== index))
   }
-  function saveBinding() {
-    if (!editing || !current) return
-    // Rimuovo tutti i binding del tasto e riaggiungo quelli con azione valida.
-    const kept = current.keybinds.filter((kb) => kb.key !== editing.id)
-    const added: keybind[] = draftBindings
+  // Binding validi correnti del dialog, legati al tasto in modifica.
+  function draftToKeybinds(keyId: string): keybind[] {
+    return draftBindings
       .filter((b) => b.action.trim() && b.category)
       .slice(0, MAX_BINDINGS)
       .map((b) => ({
-        key: editing.id,
+        key: keyId,
         action: b.action.trim(),
         category: b.category,
         ...(b.actionKey ? { actionKey: b.actionKey } : {}),
       }))
-    commitKeybinds([...kept, ...added])
+  }
+  function saveBinding() {
+    if (!editing || !current) return
+    // Rimuovo tutti i binding del tasto e riaggiungo quelli con azione valida.
+    const kept = current.keybinds.filter((kb) => kb.key !== editing.id)
+    commitKeybinds([...kept, ...draftToKeybinds(editing.id)])
+    setEditing(null)
+  }
+  // Applica i binding correnti del tasto a TUTTE le mappe/profili (non solo a
+  // quella attiva). Le categorie sono condivise a livello di progetto, quindi
+  // sono valide ovunque.
+  function saveBindingToAll() {
+    if (!editing) return
+    const added = draftToKeybinds(editing.id)
+    const keybindMaps = maps.map((m) => ({
+      ...m,
+      keybinds: [...m.keybinds.filter((kb) => kb.key !== editing.id), ...added],
+    }))
+    commit({ ...project, keybindMaps })
     setEditing(null)
   }
   function removeBinding() {
@@ -709,7 +726,7 @@ function KeybindsBoard({ project }: { project: project }) {
               <div className="flex size-10 items-center justify-center rounded-lg bg-green-500/20">
                 <BoxesIcon className="size-6" />
               </div>
-              <CardTitle className="text-2xl">Mods</CardTitle>
+              <CardTitle className="text-2xl">{t("keybinds.modsTitle")}</CardTitle>
             </div>
             <div className="flex items-center gap-1">
               <Button
@@ -717,22 +734,22 @@ function KeybindsBoard({ project }: { project: project }) {
                 size="icon"
                 onClick={() => void scanKeybinds(true)}
                 disabled={scanning}
-                aria-label="Rescan mod keybinds"
-                title="Rescan mod keybinds"
+                aria-label={t("keybinds.rescan")}
+                title={t("keybinds.rescan")}
               >
                 <RefreshCcwIcon className={cn(scanning && "ease-in-out animate-spin")} />
               </Button>
-              <Button variant="outline" size="sm" onClick={openAddMod}><PlusIcon /> Mod</Button>
+              <Button variant="outline" size="sm" onClick={openAddMod}><PlusIcon /> {t("keybinds.modButton")}</Button>
             </div>
           </CardHeader>
           <CardContent className="space-y-2 py-3">
             {categories.length === 0 && tags.length === 0 && (
-              <p className="text-sm text-muted-foreground">Add a mod to start.</p>
+              <p className="text-sm text-muted-foreground">{t("keybinds.addModToStart")}</p>
             )}
             {/* Click su un chip = modifica la mod */}
             {categories.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="w-10 text-xs text-muted-foreground">Mods</span>
+                <span className="w-10 text-xs text-muted-foreground">{t("keybinds.modsLabel")}</span>
                 {categories.map((c) => (
                   <FilterChip key={c.name} label={c.name} color={c.color} active={false} onClick={() => openEditMod(c)} />
                 ))}
@@ -746,18 +763,18 @@ function KeybindsBoard({ project }: { project: project }) {
               <div className="flex size-10 items-center justify-center rounded-lg bg-blue-500/20">
                 <TagsIcon className="size-6" />
               </div>
-              <CardTitle className="text-2xl">Tag</CardTitle>
+              <CardTitle className="text-2xl">{t("keybinds.tagTitle")}</CardTitle>
             </div>
-            <Button variant="outline" size="sm" onClick={openAddTag}><PlusIcon /> Tag</Button>
+            <Button variant="outline" size="sm" onClick={openAddTag}><PlusIcon /> {t("keybinds.tagButton")}</Button>
           </CardHeader>
           <CardContent className="space-y-2 py-3">
             {categories.length === 0 && tags.length === 0 && (
-              <p className="text-sm text-muted-foreground">Add a tag to start.</p>
+              <p className="text-sm text-muted-foreground">{t("keybinds.addTagToStart")}</p>
             )}
             {/* Click su un chip = modifica il tag */}
             {tags.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="w-10 text-xs text-muted-foreground">Tags</span>
+                <span className="w-10 text-xs text-muted-foreground">{t("keybinds.tagsLabel")}</span>
                 {tags.map((t) => (
                   <FilterChip key={t.name} label={t.name} active={false} onClick={() => openEditTag(t)} />
                 ))}
@@ -769,7 +786,7 @@ function KeybindsBoard({ project }: { project: project }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Keybinds</CardTitle>
+          <CardTitle className="text-2xl">{t("keybinds.keybindsTitle")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Selettore mappe */}
@@ -789,10 +806,10 @@ function KeybindsBoard({ project }: { project: project }) {
                   </button>
                   {active && (
                     <>
-                      <button type="button" onClick={() => openEditMap(i)} className="rounded-full p-0.5 hover:bg-black/10" aria-label="Edit map">
+                      <button type="button" onClick={() => openEditMap(i)} className="rounded-full p-0.5 hover:bg-black/10" aria-label={t("keybinds.editMap")}>
                         <PencilIcon className="size-3" />
                       </button>
-                      <button type="button" onClick={() => removeMap(i)} className="rounded-full p-0.5 hover:bg-black/10" aria-label="Remove map">
+                      <button type="button" onClick={() => removeMap(i)} className="rounded-full p-0.5 hover:bg-black/10" aria-label={t("keybinds.removeMap")}>
                         <XIcon className="size-3.5" />
                       </button>
                     </>
@@ -800,14 +817,14 @@ function KeybindsBoard({ project }: { project: project }) {
                 </div>
               )
             })}
-            <Button variant="ghost" size="sm" onClick={openAddMap}><PlusIcon /> Map</Button>
+            <Button variant="ghost" size="sm" onClick={openAddMap}><PlusIcon /> {t("keybinds.mapButton")}</Button>
             <Button
               variant="outline"
               size="sm"
               className="ml-auto"
               onClick={() => setImportOpen(true)}
             >
-              <UploadIcon /> Import
+              <UploadIcon /> {t("keybinds.import")}
             </Button>
             <Button
               variant="outline"
@@ -815,15 +832,15 @@ function KeybindsBoard({ project }: { project: project }) {
               onClick={() => setExportOpen(true)}
               disabled={maps.length === 0}
             >
-              <DownloadIcon /> Export
+              <DownloadIcon /> {t("keybinds.export")}
             </Button>
           </div>
 
           {!current ? (
             <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
               <MapIcon className="size-10 text-muted-foreground" />
-              <p className="text-muted-foreground">No keybind maps yet.</p>
-              <Button variant="outline" onClick={openAddMap}><PlusIcon /> Add map</Button>
+              <p className="text-muted-foreground">{t("keybinds.noMaps")}</p>
+              <Button variant="outline" onClick={openAddMap}><PlusIcon /> {t("keybinds.addMap")}</Button>
             </div>
           ) : (
             <>
@@ -833,7 +850,7 @@ function KeybindsBoard({ project }: { project: project }) {
                   <div className="relative min-w-48 flex-1 max-w-xs">
                     <SearchIcon className="absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
-                      placeholder="Search action..."
+                      placeholder={t("keybinds.searchAction")}
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                       className="h-8 pl-8"
@@ -842,10 +859,10 @@ function KeybindsBoard({ project }: { project: project }) {
                   {tags.length > 0 && (
                     <Select value={tagFilter} onValueChange={setTagFilter}>
                       <SelectTrigger className="h-8 w-44">
-                        <SelectValue placeholder="All tags" />
+                        <SelectValue placeholder={t("keybinds.allTags")} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All tags</SelectItem>
+                        <SelectItem value="all">{t("keybinds.allTags")}</SelectItem>
                         {tags.map((t) => (
                           <SelectItem key={t.name} value={t.name}>{t.name}</SelectItem>
                         ))}
@@ -855,8 +872,8 @@ function KeybindsBoard({ project }: { project: project }) {
                 </div>
                 {categories.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="w-10 text-xs text-muted-foreground">Mods</span>
-                    <FilterChip label="All" active={modFilter === "all"} onClick={() => setModFilter("all")} />
+                    <span className="w-10 text-xs text-muted-foreground">{t("keybinds.modsLabel")}</span>
+                    <FilterChip label={t("keybinds.all")} active={modFilter === "all"} onClick={() => setModFilter("all")} />
                     {categories.map((c) => (
                       <FilterChip
                         key={c.name}
@@ -874,13 +891,13 @@ function KeybindsBoard({ project }: { project: project }) {
               <div className="overflow-x-auto">
                 <div className="flex w-fit items-start gap-6">
                   <div className="space-y-3">
-                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><KeyboardIcon className="size-4" /> Keyboard</p>
+                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><KeyboardIcon className="size-4" /> {t("keybinds.keyboard")}</p>
                     <div className="rounded-xl border bg-muted/30 p-4">
                       <div className="space-y-1">{MAIN_ROWS.map(renderRow)}</div>
                     </div>
                   </div>
                   <div className="space-y-3">
-                    <p className="text-xs text-muted-foreground">Numpad</p>
+                    <p className="text-xs text-muted-foreground">{t("keybinds.numpad")}</p>
                     <div className="rounded-xl border bg-muted/30 p-4">
                       <div className="flex items-start gap-1">
                         <div className="space-y-1">{NUMPAD_ROWS.map(renderRow)}</div>
@@ -889,7 +906,7 @@ function KeybindsBoard({ project }: { project: project }) {
                     </div>
                   </div>
                   <div className="space-y-3">
-                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><MouseIcon className="size-4" /> Mouse</p>
+                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><MouseIcon className="size-4" /> {t("keybinds.mouse")}</p>
                     <div className="rounded-xl border bg-muted/30 p-4">{renderRow(MOUSE_KEYS, 0)}</div>
                   </div>
                 </div>
@@ -898,15 +915,15 @@ function KeybindsBoard({ project }: { project: project }) {
               {/* Macro: combinazioni modificatore + tasto (es. Ctrl+A) della mappa attiva */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><ZapIcon className="size-4" /> Macros</p>
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><ZapIcon className="size-4" /> {t("keybinds.macros")}</p>
                   <Button variant="outline" size="sm" onClick={openAddMacro} disabled={categories.length === 0}>
-                    <PlusIcon /> Macro
+                    <PlusIcon /> {t("keybinds.macroButton")}
                   </Button>
                 </div>
                 <div className="rounded-xl border bg-muted/30 p-4">
                   {(current.macros ?? []).length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      No macros yet. Add a modifier combo like Ctrl + A.
+                      {t("keybinds.noMacros")}
                     </p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
@@ -926,7 +943,7 @@ function KeybindsBoard({ project }: { project: project }) {
                             )}
                           >
                             <span className="rounded bg-black/25 px-1.5 py-0.5 font-mono text-[11px] font-semibold whitespace-nowrap">
-                              {MODIFIER_LABEL[mc.modifier]} + {keyLabel(mc.key)}
+                              {t("keybinds.modifier." + mc.modifier)} + {keyLabel(mc.key)}
                             </span>
                             <span className="line-clamp-1 text-[11px] opacity-90">{mc.action}</span>
                           </button>
@@ -946,30 +963,30 @@ function KeybindsBoard({ project }: { project: project }) {
         <Card>
           <CardHeader className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-2xl">Import report</CardTitle>
+              <CardTitle className="text-2xl">{t("keybinds.importReport.title")}</CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
-                {importReport.maps} map(s), {importReport.bindings} binding(s) imported
-                {importReport.issues.length > 0 && ` · ${importReport.issues.length} skipped`}
+                {t("keybinds.importReport.summary", { maps: importReport.maps, bindings: importReport.bindings })}
+                {importReport.issues.length > 0 && t("keybinds.importReport.skipped", { count: importReport.issues.length })}
               </p>
             </div>
-            <Button variant="ghost" size="icon" onClick={() => setImportReport(null)} aria-label="Dismiss report">
+            <Button variant="ghost" size="icon" onClick={() => setImportReport(null)} aria-label={t("keybinds.importReport.dismiss")}>
               <XIcon />
             </Button>
           </CardHeader>
           <CardContent>
             {importReport.issues.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No issues — all bindings were imported.
+                {t("keybinds.importReport.noIssues")}
               </p>
             ) : (
               <div className="rounded-md border">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Map</TableHead>
-                      <TableHead>Action</TableHead>
-                      <TableHead>Key</TableHead>
-                      <TableHead>Problem</TableHead>
+                      <TableHead>{t("keybinds.importReport.colMap")}</TableHead>
+                      <TableHead>{t("keybinds.importReport.colAction")}</TableHead>
+                      <TableHead>{t("keybinds.importReport.colKey")}</TableHead>
+                      <TableHead>{t("keybinds.importReport.colProblem")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -980,7 +997,7 @@ function KeybindsBoard({ project }: { project: project }) {
                         <TableCell className="font-mono text-xs text-muted-foreground">
                           {iss.keyCode ?? "—"}
                         </TableCell>
-                        <TableCell className="text-destructive">{REASON_LABEL[iss.reason]}</TableCell>
+                        <TableCell className="text-destructive">{t("keybinds.reason." + REASON_KEY[iss.reason])}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -1002,11 +1019,11 @@ function KeybindsBoard({ project }: { project: project }) {
             <DialogTitle>{editing?.label}</DialogTitle>
           </DialogHeader>
           {categories.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No mods yet. Add a mod first.</p>
+            <p className="text-sm text-muted-foreground">{t("keybinds.noModsYet")}</p>
           ) : (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label>Bindings</Label>
+                <Label>{t("keybinds.bindings")}</Label>
                 <span className="text-xs text-muted-foreground">{draftBindings.length}/{MAX_BINDINGS}</span>
               </div>
               {draftBindings.map((b, i) => {
@@ -1029,9 +1046,9 @@ function KeybindsBoard({ project }: { project: project }) {
                           }
                           isItemEqualToValue={(a, c) => a?.value === c?.value}
                         >
-                          <ComboboxInput placeholder="Select action" />
+                          <ComboboxInput placeholder={t("keybinds.selectAction")} />
                           <ComboboxContent>
-                            <ComboboxEmpty>No actions found.</ComboboxEmpty>
+                            <ComboboxEmpty>{t("keybinds.noActionsFound")}</ComboboxEmpty>
                             <ComboboxList>
                               {(item: { value: string; label: string }) => (
                                 <ComboboxItem key={item.value} value={item}>{item.label}</ComboboxItem>
@@ -1042,7 +1059,7 @@ function KeybindsBoard({ project }: { project: project }) {
                       </div>
                     ) : (
                       <Input
-                        placeholder="e.g. Open inventory"
+                        placeholder={t("keybinds.actionPlaceholder")}
                         value={b.action}
                         onChange={(e) => updateDraftBinding(i, { action: e.target.value, actionKey: undefined })}
                         autoFocus={i === 0}
@@ -1054,7 +1071,7 @@ function KeybindsBoard({ project }: { project: project }) {
                       onValueChange={(v) => updateDraftBinding(i, { category: v, action: "", actionKey: undefined })}
                     >
                       <SelectTrigger className="h-8 w-36 shrink-0">
-                        <SelectValue placeholder="Mod" />
+                        <SelectValue placeholder={t("keybinds.modPlaceholder")} />
                       </SelectTrigger>
                       <SelectContent>
                         {categories.map((c) => (
@@ -1068,7 +1085,7 @@ function KeybindsBoard({ project }: { project: project }) {
                       size="icon"
                       className="shrink-0"
                       onClick={() => removeDraftBinding(i)}
-                      aria-label="Remove binding"
+                      aria-label={t("keybinds.removeBinding")}
                     >
                       <XIcon />
                     </Button>
@@ -1082,21 +1099,34 @@ function KeybindsBoard({ project }: { project: project }) {
                 onClick={addDraftBinding}
                 disabled={draftBindings.length >= MAX_BINDINGS}
               >
-                <PlusIcon /> Add binding
+                <PlusIcon /> {t("keybinds.addBinding")}
               </Button>
             </div>
           )}
           <DialogFooter className="sm:justify-between">
             {bindingsByKey.has(editing?.id ?? "") ? (
-              <Button type="button" variant="ghost" className="text-destructive" onClick={removeBinding}><Trash2Icon /> Remove</Button>
+              <Button type="button" variant="ghost" className="text-destructive" onClick={removeBinding}><Trash2Icon /> {t("keybinds.remove")}</Button>
             ) : <span />}
-            <Button
-              type="button"
-              onClick={saveBinding}
-              disabled={categories.length === 0 || draftBindings.some((b) => b.action.trim() && !b.category)}
-            >
-              Save
-            </Button>
+            <div className="flex gap-2">
+              {maps.length > 1 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={saveBindingToAll}
+                  disabled={categories.length === 0 || draftBindings.some((b) => b.action.trim() && !b.category)}
+                  title={t("keybinds.allProfilesTitle")}
+                >
+                  <LayersIcon /> {t("keybinds.allProfiles")}
+                </Button>
+              )}
+              <Button
+                type="button"
+                onClick={saveBinding}
+                disabled={categories.length === 0 || draftBindings.some((b) => b.action.trim() && !b.category)}
+              >
+                {t("keybinds.save")}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1109,15 +1139,15 @@ function KeybindsBoard({ project }: { project: project }) {
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <DialogHeader>
-            <DialogTitle>{editingMod ? "Edit mod" : "Add mod"}</DialogTitle>
+            <DialogTitle>{editingMod ? t("keybinds.editModTitle") : t("keybinds.addModTitle")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Mod</Label>
+              <Label>{t("keybinds.modLabel")}</Label>
               <Combobox items={project.mods} value={modName} onValueChange={(value: string | null) => setModName(value ?? "")}>
-                <ComboboxInput placeholder="Select a mod" />
+                <ComboboxInput placeholder={t("keybinds.selectMod")} />
                 <ComboboxContent>
-                  <ComboboxEmpty>No mods found.</ComboboxEmpty>
+                  <ComboboxEmpty>{t("keybinds.noModsFound")}</ComboboxEmpty>
                   <ComboboxList>
                     {(item: mod) => (
                       <ComboboxItem key={item.filename} value={item.name}>{item.name}</ComboboxItem>
@@ -1127,7 +1157,7 @@ function KeybindsBoard({ project }: { project: project }) {
               </Combobox>
             </div>
             <div className="space-y-2">
-              <Label>Color</Label>
+              <Label>{t("keybinds.color")}</Label>
               <ColorPicker
                 defaultValue={modColor}
                 onChange={(v) => setModColor(typeof v === "string" ? v : String(v))}
@@ -1147,7 +1177,7 @@ function KeybindsBoard({ project }: { project: project }) {
             </div>
             {tags.length > 0 && (
               <div className="space-y-2">
-                <Label>Tags</Label>
+                <Label>{t("keybinds.tagsLabel")}</Label>
                 <div className="flex flex-wrap gap-2">
                   {tags.map((t) => {
                     const selected = modTags.includes(t.name)
@@ -1166,9 +1196,9 @@ function KeybindsBoard({ project }: { project: project }) {
           </div>
           <DialogFooter className="sm:justify-between">
             {editingMod ? (
-              <Button type="button" variant="ghost" className="text-destructive" onClick={removeMod}><Trash2Icon /> Remove</Button>
+              <Button type="button" variant="ghost" className="text-destructive" onClick={removeMod}><Trash2Icon /> {t("keybinds.remove")}</Button>
             ) : <span />}
-            <Button type="button" onClick={saveMod} disabled={!modName.trim()}>{editingMod ? "Save" : "Add"}</Button>
+            <Button type="button" onClick={saveMod} disabled={!modName.trim()}>{editingMod ? t("keybinds.save") : t("keybinds.add")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1177,17 +1207,17 @@ function KeybindsBoard({ project }: { project: project }) {
       <Dialog open={tagOpen} onOpenChange={setTagOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingTag ? "Edit tag" : "Add tag"}</DialogTitle>
+            <DialogTitle>{editingTag ? t("keybinds.editTagTitle") : t("keybinds.addTagTitle")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="tag-name">Name</Label>
-            <Input id="tag-name" placeholder="e.g. Movement" value={tagName} onChange={(e) => setTagName(e.target.value)} autoFocus />
+            <Label htmlFor="tag-name">{t("keybinds.name")}</Label>
+            <Input id="tag-name" placeholder={t("keybinds.tagPlaceholder")} value={tagName} onChange={(e) => setTagName(e.target.value)} autoFocus />
           </div>
           <DialogFooter className="sm:justify-between">
             {editingTag ? (
-              <Button type="button" variant="ghost" className="text-destructive" onClick={removeTag}><Trash2Icon /> Remove</Button>
+              <Button type="button" variant="ghost" className="text-destructive" onClick={removeTag}><Trash2Icon /> {t("keybinds.remove")}</Button>
             ) : <span />}
-            <Button type="button" onClick={saveTag} disabled={!tagName.trim()}>{editingTag ? "Save" : "Add"}</Button>
+            <Button type="button" onClick={saveTag} disabled={!tagName.trim()}>{editingTag ? t("keybinds.save") : t("keybinds.add")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1196,14 +1226,14 @@ function KeybindsBoard({ project }: { project: project }) {
       <Dialog open={mapOpen} onOpenChange={setMapOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingMapIndex !== null ? "Edit map" : "Add map"}</DialogTitle>
+            <DialogTitle>{editingMapIndex !== null ? t("keybinds.editMapTitle") : t("keybinds.addMapTitle")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="map-name">Name</Label>
-            <Input id="map-name" placeholder="e.g. Tech & Weapons" value={mapName} onChange={(e) => setMapName(e.target.value)} autoFocus />
+            <Label htmlFor="map-name">{t("keybinds.name")}</Label>
+            <Input id="map-name" placeholder={t("keybinds.mapPlaceholder")} value={mapName} onChange={(e) => setMapName(e.target.value)} autoFocus />
           </div>
           <DialogFooter>
-            <Button type="button" onClick={saveMap} disabled={!mapName.trim()}>{editingMapIndex !== null ? "Save" : "Add"}</Button>
+            <Button type="button" onClick={saveMap} disabled={!mapName.trim()}>{editingMapIndex !== null ? t("keybinds.save") : t("keybinds.add")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1216,24 +1246,24 @@ function KeybindsBoard({ project }: { project: project }) {
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <DialogHeader>
-            <DialogTitle>{editingMacroIndex !== null ? "Edit macro" : "Add macro"}</DialogTitle>
+            <DialogTitle>{editingMacroIndex !== null ? t("keybinds.editMacroTitle") : t("keybinds.addMacroTitle")}</DialogTitle>
           </DialogHeader>
           {categories.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No mods yet. Add a mod first.</p>
+            <p className="text-sm text-muted-foreground">{t("keybinds.noModsYet")}</p>
           ) : (
             <div className="space-y-4">
               {/* Combinazione: modificatore + tasto base */}
               <div className="space-y-2">
-                <Label>Combination</Label>
+                <Label>{t("keybinds.combination")}</Label>
                 <div className="flex items-center gap-2">
                   <Select value={macroMod} onValueChange={(v) => setMacroMod(v as macroModifier)}>
                     <SelectTrigger className="h-8 w-28 shrink-0">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ctrl">Ctrl</SelectItem>
-                      <SelectItem value="shift">Shift</SelectItem>
-                      <SelectItem value="alt">Alt</SelectItem>
+                      <SelectItem value="ctrl">{t("keybinds.modifier.ctrl")}</SelectItem>
+                      <SelectItem value="shift">{t("keybinds.modifier.shift")}</SelectItem>
+                      <SelectItem value="alt">{t("keybinds.modifier.alt")}</SelectItem>
                     </SelectContent>
                   </Select>
                   <span className="text-muted-foreground">+</span>
@@ -1244,9 +1274,9 @@ function KeybindsBoard({ project }: { project: project }) {
                       onValueChange={(v: { value: string; label: string } | null) => setMacroKey(v?.value ?? "")}
                       isItemEqualToValue={(a, c) => a?.value === c?.value}
                     >
-                      <ComboboxInput placeholder="Select key" />
+                      <ComboboxInput placeholder={t("keybinds.selectKey")} />
                       <ComboboxContent>
-                        <ComboboxEmpty>No keys found.</ComboboxEmpty>
+                        <ComboboxEmpty>{t("keybinds.noKeysFound")}</ComboboxEmpty>
                         <ComboboxList>
                           {(item: { value: string; label: string }) => (
                             <ComboboxItem key={item.value} value={item}>{item.label}</ComboboxItem>
@@ -1259,7 +1289,7 @@ function KeybindsBoard({ project }: { project: project }) {
               </div>
               {/* Mod (categoria) */}
               <div className="space-y-2">
-                <Label>Mod</Label>
+                <Label>{t("keybinds.modLabel")}</Label>
                 <Select
                   value={macroCategory}
                   onValueChange={(v) => {
@@ -1269,7 +1299,7 @@ function KeybindsBoard({ project }: { project: project }) {
                   }}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Mod" />
+                    <SelectValue placeholder={t("keybinds.modPlaceholder")} />
                   </SelectTrigger>
                   <SelectContent>
                     {categories.map((c) => (
@@ -1280,7 +1310,7 @@ function KeybindsBoard({ project }: { project: project }) {
               </div>
               {/* Azione */}
               <div className="space-y-2">
-                <Label>Action</Label>
+                <Label>{t("keybinds.action")}</Label>
                 {macroActions ? (
                   <Combobox
                     key={macroCategory}
@@ -1292,9 +1322,9 @@ function KeybindsBoard({ project }: { project: project }) {
                     }}
                     isItemEqualToValue={(a, c) => a?.value === c?.value}
                   >
-                    <ComboboxInput placeholder="Select action" />
+                    <ComboboxInput placeholder={t("keybinds.selectAction")} />
                     <ComboboxContent>
-                      <ComboboxEmpty>No actions found.</ComboboxEmpty>
+                      <ComboboxEmpty>{t("keybinds.noActionsFound")}</ComboboxEmpty>
                       <ComboboxList>
                         {(item: { value: string; label: string }) => (
                           <ComboboxItem key={item.value} value={item}>{item.label}</ComboboxItem>
@@ -1304,7 +1334,7 @@ function KeybindsBoard({ project }: { project: project }) {
                   </Combobox>
                 ) : (
                   <Input
-                    placeholder="e.g. Quick craft"
+                    placeholder={t("keybinds.macroActionPlaceholder")}
                     value={macroAction}
                     onChange={(e) => {
                       setMacroAction(e.target.value)
@@ -1317,14 +1347,14 @@ function KeybindsBoard({ project }: { project: project }) {
           )}
           <DialogFooter className="sm:justify-between">
             {editingMacroIndex !== null ? (
-              <Button type="button" variant="ghost" className="text-destructive" onClick={removeMacro}><Trash2Icon /> Remove</Button>
+              <Button type="button" variant="ghost" className="text-destructive" onClick={removeMacro}><Trash2Icon /> {t("keybinds.remove")}</Button>
             ) : <span />}
             <Button
               type="button"
               onClick={saveMacro}
               disabled={categories.length === 0 || !macroKey || !macroAction.trim() || !macroCategory}
             >
-              {editingMacroIndex !== null ? "Save" : "Add"}
+              {editingMacroIndex !== null ? t("keybinds.save") : t("keybinds.add")}
             </Button>
           </DialogFooter>
         </DialogContent>

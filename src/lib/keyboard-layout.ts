@@ -33,27 +33,27 @@ export const MAIN_ROWS: KeyboardItem[][] = [
         k("f1", "F1"), k("f2", "F2"), k("f3", "F3"), k("f4", "F4"), sp(0.5),
         k("f5", "F5"), k("f6", "F6"), k("f7", "F7"), k("f8", "F8"), sp(0.5),
         k("f9", "F9"), k("f10", "F10"), k("f11", "F11"), k("f12", "F12"), sp(0.5),
-        k("stamp", "Stamp"), k("scrolllock", "Bloc Scorr"), k("pause", "Pausa"),
+        k("stamp", "PrtSc"), k("scrolllock", "Scroll Lock"), k("pause", "Pause"),
     ],
     [
         k("backslash", "\\"),
         k("digit1", "1"), k("digit2", "2"), k("digit3", "3"), k("digit4", "4"), k("digit5", "5"),
         k("digit6", "6"), k("digit7", "7"), k("digit8", "8"), k("digit9", "9"), k("digit0", "0"),
         k("apostrophe", "'"), k("igrave", "ì"), k("backspace", "Backspace", 2), sp(0.5),
-        k("insert", "Ins"), k("home", "Home"), k("pageup", "PagSu"),
+        k("insert", "Ins"), k("home", "Home"), k("pageup", "PgUp"),
     ],
     [
         k("tab", "Tab", 1.5),
         k("q", "Q"), k("w", "W"), k("e", "E"), k("r", "R"), k("t", "T"), k("y", "Y"),
         k("u", "U"), k("i", "I"), k("o", "O"), k("p", "P"), k("egrave", "è"), k("plus", "+"),
-        k("enter1", "Invio", 1.5), sp(0.5),
-        k("delete", "Canc"), k("end", "Fine"), k("pagedown", "PagGiù"),
+        k("enter1", "Enter", 1.5), sp(0.5),
+        k("delete", "Del"), k("end", "End"), k("pagedown", "PgDn"),
     ],
     [
         k("capslock", "Caps", 1.75),
         k("a", "A"), k("s", "S"), k("d", "D"), k("f", "F"), k("g", "G"), k("h", "H"),
         k("j", "J"), k("k", "K"), k("l", "L"), k("ograve", "ò"), k("agrave", "à"), k("ugrave", "ù"),
-        k("enter2", "Invio", 1.25),
+        k("enter2", "Enter", 1.25),
     ],
     [
         k("shiftleft", "Shift", 1.5),
@@ -64,7 +64,7 @@ export const MAIN_ROWS: KeyboardItem[][] = [
     ],
     [
         k("ctrlleft", "Ctrl", 1.5), k("winleft", "Win", 1.25), k("alt", "Alt", 1.25),
-        k("space", "Spazio", 5.75),
+        k("space", "Space", 5.75),
         k("altgr", "AltGr", 1.25), k("winright", "Win", 1.25), k("menu", "Menu", 1.25),
         k("ctrlright", "Ctrl", 1.5), sp(0.5),
         k("arrowleft", "←"), k("arrowdown", "↓"), k("arrowright", "→"),
@@ -73,7 +73,7 @@ export const MAIN_ROWS: KeyboardItem[][] = [
 
 // Tastierino numerico: le 3 colonne di sinistra (righe da 3u, nessun vuoto).
 export const NUMPAD_ROWS: KeyboardItem[][] = [
-    [k("numlock", "Bloc Num"), k("numdivide", "/"), k("nummultiply", "*")],
+    [k("numlock", "Num Lock"), k("numdivide", "/"), k("nummultiply", "*")],
     [k("num7", "7"), k("num8", "8"), k("num9", "9")],
     [k("num4", "4"), k("num5", "5"), k("num6", "6")],
     [k("num1", "1"), k("num2", "2"), k("num3", "3")],
@@ -85,16 +85,16 @@ export const NUMPAD_ROWS: KeyboardItem[][] = [
 export const NUMPAD_SIDE: KeyDef[] = [
     k("numminus", "−"),
     k("numplus", "+", 1, true),
-    k("numenter", "Invio", 1, true),
+    k("numenter", "Enter", 1, true),
 ]
 
 // Mouse: pulsanti principali, rotella e tasti laterali.
 export const MOUSE_KEYS: KeyDef[] = [
-    k("mouse1", "BT1 (Sx)"),
-    k("mouse3", "Rotella"),
-    k("mouse2", "BT2 (Dx)"),
-    k("mouse4", "BT4"),
-    k("mouse5", "BT5"),
+    k("mouse1", "LMB"),
+    k("mouse3", "Wheel"),
+    k("mouse2", "RMB"),
+    k("mouse4", "MB4"),
+    k("mouse5", "MB5"),
 ]
 
 // Tutti i tasti (KeyDef) del layout, in ordine di riga: utile per costruire un

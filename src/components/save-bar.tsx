@@ -10,6 +10,7 @@ import { Button } from "./ui/button"
 import { useAppDispatch, useAppSelector } from "../redux/hooks"
 import { markSaved } from "../redux/project-slice"
 import { toastStyles } from "../model/models"
+import { useTranslation } from "@/src/i18n/i18n-provider"
 
 /**
  * Barra globale di salvataggio: mostra un alert quando il progetto ha modifiche
@@ -17,6 +18,7 @@ import { toastStyles } from "../model/models"
  * disponibile in ogni pagina. La sorgente di verità è `state.project.unsaved`.
  */
 export function SaveBar() {
+  const { t } = useTranslation()
   const project = useAppSelector((state) => state.project.project)
   const unsaved = useAppSelector((state) => state.project.unsaved)
   const dispatch = useAppDispatch()
@@ -27,7 +29,7 @@ export function SaveBar() {
     if (!project) return
 
     if (!project.metadata.name.trim()) {
-      toast.error("Set a project name before saving", {
+      toast.error(t("saveBar.setNameBeforeSaving"), {
         position: "top-right", style: toastStyles.destructive,
       })
       return
@@ -40,12 +42,12 @@ export function SaveBar() {
       await file.close()
 
       dispatch(markSaved())
-      toast.success("Saved successfully", {
+      toast.success(t("saveBar.savedSuccessfully"), {
         position: "top-right", style: toastStyles.success,
       })
     } catch (error) {
       console.error(error)
-      toast.error("Save failed", {
+      toast.error(t("saveBar.saveFailed"), {
         position: "top-right", style: toastStyles.destructive,
       })
     }
@@ -54,12 +56,12 @@ export function SaveBar() {
   return (
     <Alert className="border-amber-600 text-amber-600 dark:border-amber-400 dark:text-amber-400">
       <CircleAlertIcon />
-      <AlertTitle>Unsaved changes</AlertTitle>
+      <AlertTitle>{t("saveBar.unsavedTitle")}</AlertTitle>
       <AlertDescription className="text-amber-600/80 dark:text-amber-400/80">
-        You have unsaved changes
+        {t("saveBar.unsavedDescription")}
       </AlertDescription>
       <AlertAction className="top-1/2 -translate-y-1/2">
-        <Button type="button" variant="outline" onClick={handleSave}>Save</Button>
+        <Button type="button" variant="outline" onClick={handleSave}>{t("saveBar.save")}</Button>
       </AlertAction>
     </Alert>
   )

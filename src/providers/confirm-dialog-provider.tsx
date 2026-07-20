@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, ReactNode } from 'react'
 import { CircleQuestionMarkIcon, InfoIcon, OctagonAlertIcon, TriangleAlertIcon } from 'lucide-react'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../components/ui/alert-dialog'
+import { useTranslation } from '@/src/i18n/i18n-provider'
 
 export type ConfirmDialogType = 'yes/no' | 'info' | 'warning' | 'delete' | 'error' | 'cancel/continue/save'
 
@@ -25,6 +26,8 @@ export const useConfirm = () => {
 
 export const ConfirmProvider = ({ children }: { children: ReactNode }) => {
 
+    const { t } = useTranslation()
+
     const [state, setState] = useState<{
         open: boolean
         options?: ConfirmOptions
@@ -48,19 +51,19 @@ export const ConfirmProvider = ({ children }: { children: ReactNode }) => {
         if (state.options?.title) return state.options.title
         switch (type) {
             case 'delete':
-                return 'Delete'
+                return t("confirm.titleDelete")
             case 'yes/no':
-                return "Are you sure?"
+                return t("confirm.titleAreYouSure")
             case 'warning':
-                return "Warning"
+                return t("confirm.titleWarning")
             case 'error':
-                return "Error"
+                return t("confirm.titleError")
             default:
-                return 'Confirm'
+                return t("confirm.titleConfirm")
         }
     };
 
-    const message = state.options?.message || 'Are you sure you want to proceed?'
+    const message = state.options?.message || t("confirm.defaultMessage")
 
     const getIcon = () => {
         switch (type) {
@@ -101,10 +104,10 @@ export const ConfirmProvider = ({ children }: { children: ReactNode }) => {
                 return (
                     <>
                         <AlertDialogCancel onClick={() => close(false)}>
-                            No
+                            {t("confirm.buttonNo")}
                         </AlertDialogCancel>
                         <AlertDialogAction onClick={() => close(true)}>
-                            Yes
+                            {t("confirm.buttonYes")}
                         </AlertDialogAction>
                     </>
                 )
@@ -112,13 +115,13 @@ export const ConfirmProvider = ({ children }: { children: ReactNode }) => {
                 return (
                     <>
                         <AlertDialogCancel onClick={() => close(false)}>
-                            Cancel
+                            {t("confirm.buttonCancel")}
                         </AlertDialogCancel>
                         <AlertDialogAction variant={'destructive'}
                             onClick={() => close(true)}
                             className="text-white"
                         >
-                            Delete
+                            {t("confirm.buttonDelete")}
                         </AlertDialogAction>
                     </>
                 )
@@ -126,20 +129,20 @@ export const ConfirmProvider = ({ children }: { children: ReactNode }) => {
                 return (
                     <>
                         <AlertDialogCancel onClick={() => close(false)}>
-                            Cancel
+                            {t("confirm.buttonCancel")}
                         </AlertDialogCancel>
                         <AlertDialogAction onClick={() => close("continue")}>
-                            {state.options?.without ? "Without Save" : "Continue"}
+                            {state.options?.without ? t("confirm.buttonWithoutSave") : t("confirm.buttonContinue")}
                         </AlertDialogAction>
                         <AlertDialogAction onClick={() => close(true)}>
-                            Save
+                            {t("confirm.buttonSave")}
                         </AlertDialogAction>
                     </>
                 )
             default:
                 return (
                     <AlertDialogCancel onClick={() => close(true)}>
-                        Ok
+                        {t("confirm.buttonOk")}
                     </AlertDialogCancel>
                 )
         }

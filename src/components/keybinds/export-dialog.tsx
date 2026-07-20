@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { writeTextFile, readTextFile, exists } from "@tauri-apps/plugin-fs"
+import { writeTextFile, writeFile, readTextFile, exists } from "@tauri-apps/plugin-fs"
 import { save } from "@tauri-apps/plugin-dialog"
 import { basename } from "@tauri-apps/api/path"
 import { toast } from "sonner"
@@ -25,6 +25,33 @@ import { Button } from "../ui/button"
 import { Label } from "../ui/label"
 import { project, toastStyles } from "../../model/models"
 import { EXPORTERS, getExporter, ExportContext } from "../../lib/keybind-export"
+import { useTranslation } from "@/src/i18n/i18n-provider"
+
+// Rasterizza un markup SVG in byte PNG usando un canvas (nel webview). `scale`
+// aumenta la risoluzione per un'immagine nitida. Le dimensioni derivano dagli
+// attributi width/height dell'SVG.
+async function svgToPngBytes(svg: string, scale = 2): Promise<Uint8Array> {
+  const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg)
+  const img = new Image()
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve()
+    img.onerror = () => reject(new Error("Could not load SVG for rasterization"))
+    img.src = url
+  })
+  const w = img.naturalWidth || img.width
+  const h = img.naturalHeight || img.height
+  const canvas = document.createElement("canvas")
+  canvas.width = Math.round(w * scale)
+  canvas.height = Math.round(h * scale)
+  const cctx = canvas.getContext("2d")
+  if (!cctx) throw new Error("Canvas 2D context unavailable")
+  cctx.scale(scale, scale)
+  cctx.drawImage(img, 0, 0)
+  const blob = await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("PNG encoding failed"))), "image/png")
+  )
+  return new Uint8Array(await blob.arrayBuffer())
+}
 
 export function ExportDialog({
   project,
@@ -37,6 +64,7 @@ export function ExportDialog({
   onOpenChange: (open: boolean) => void
   defaultMapIndex: number
 }) {
+  const { t } = useTranslation()
   const maps = project.keybindMaps
   // Selezione mappa: indice come stringa, oppure "all" (solo per exporter
   // multi-profilo che espongono `buildAll`).
@@ -82,9 +110,14 @@ export function ExportDialog({
         target = chosen
       }
 
-      await writeTextFile(target, res.content)
+      if (exporter.image) {
+        // `res.content` è l'SVG: lo rasterizziamo in PNG e scriviamo i byte.
+        await writeFile(target, await svgToPngBytes(res.content))
+      } else {
+        await writeTextFile(target, res.content)
+      }
       const name = await basename(target)
-      toast.success(`Exported ${res.writtenLines} keybind(s) to ${name}`, {
+      toast.success(t("keybindIo.exportSuccess", { count: res.writtenLines, name }), {
         style: toastStyles.success,
       })
       for (const w of res.warnings) {
@@ -93,7 +126,7 @@ export function ExportDialog({
       onOpenChange(false)
     } catch (err) {
       console.error(err)
-      toast.error("Export failed", { style: toastStyles.destructive })
+      toast.error(t("keybindIo.exportFailed"), { style: toastStyles.destructive })
     } finally {
       setBusy(false)
     }
@@ -103,21 +136,21 @@ export function ExportDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Export keybinds</DialogTitle>
+          <DialogTitle>{t("keybindIo.exportTitle")}</DialogTitle>
         </DialogHeader>
 
         {maps.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No keybind maps to export.</p>
+          <p className="text-sm text-muted-foreground">{t("keybindIo.noMapsToExport")}</p>
         ) : (
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Map</Label>
+              <Label>{t("keybindIo.map")}</Label>
               <Select value={effectiveSel} onValueChange={setMapSel}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {supportsAll && <SelectItem value="all">All maps</SelectItem>}
+                  {supportsAll && <SelectItem value="all">{t("keybindIo.allMaps")}</SelectItem>}
                   {maps.map((m, i) => (
                     <SelectItem key={i} value={String(i)}>{m.name}</SelectItem>
                   ))}
@@ -126,7 +159,7 @@ export function ExportDialog({
             </div>
 
             <div className="space-y-2">
-              <Label>Format</Label>
+              <Label>{t("keybindIo.format")}</Label>
               <Select value={exporterId} onValueChange={setExporterId}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
@@ -142,14 +175,14 @@ export function ExportDialog({
             </div>
 
             <div className="space-y-2">
-              <Label>Destination</Label>
+              <Label>{t("keybindIo.destination")}</Label>
               <Select value={dest} onValueChange={(v) => setDest(v as "workpath" | "choose")}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="workpath">Project folder ({exporter?.defaultFileName})</SelectItem>
-                  <SelectItem value="choose">Choose file…</SelectItem>
+                  <SelectItem value="workpath">{t("keybindIo.projectFolder", { defaultFileName: exporter?.defaultFileName ?? "" })}</SelectItem>
+                  <SelectItem value="choose">{t("keybindIo.chooseFile")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -162,7 +195,7 @@ export function ExportDialog({
             onClick={handleExport}
             disabled={busy || maps.length === 0 || !exporter?.available}
           >
-            <DownloadIcon /> Export
+            <DownloadIcon /> {t("keybindIo.export")}
           </Button>
         </DialogFooter>
       </DialogContent>

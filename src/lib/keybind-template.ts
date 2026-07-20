@@ -8,28 +8,31 @@ import { keybind, keybindCategory, keybindTag } from "../model/models"
 // Unica categoria non-mod dello schema di default (le altre categorie sono le mod).
 const VANILLA_CATEGORY = { name: "Vanilla", color: "#6b7280" } as const
 
+// I nomi dei tag di default sono in INGLESE (dato canonico persistito nel
+// project). La visualizzazione localizzata è gestita a parte via i18n; i valori
+// salvati restano stabili in inglese per non rompere i progetti esistenti.
 const TAG = {
-    movimento: "Movimento",
-    inventario: "Inventario",
-    tecnologia: "Tecnologia",
-    magia: "Magia",
-    avventura: "Avventura",
-    equipaggiamento: "Equipaggiamento",
-    creature: "Creature",
-    generazioneMondo: "Generazione Mondo",
-    trasporto: "Trasporto",
-    agricoltura: "Agricoltura",
-    cibo: "Cibo",
-    decorazione: "Decorazione",
-    cosmetica: "Cosmetica",
+    movement: "Movement",
+    inventory: "Inventory",
+    technology: "Technology",
+    magic: "Magic",
+    adventure: "Adventure",
+    equipment: "Equipment",
+    creatures: "Creatures",
+    worldGeneration: "World Generation",
+    transport: "Transport",
+    farming: "Farming",
+    food: "Food",
+    decoration: "Decoration",
+    cosmetic: "Cosmetic",
     redstone: "Redstone",
-    ottimizzazione: "Ottimizzazione",
+    optimization: "Optimization",
     utility: "Utility",
-    mappe: "Mappe",
+    maps: "Maps",
     server: "Server",
-    economia: "Economia",
-    librerie: "Librerie",
-    minigioco: "Minigioco",
+    economy: "Economy",
+    libraries: "Libraries",
+    minigame: "Minigame",
     cursed: "Cursed",
 } as const
 

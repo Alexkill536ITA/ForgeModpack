@@ -12,18 +12,43 @@ manager/editor di configurazione, non un launcher.
 Il progetto vive in un file `<nome>.json` (tipo [`project`](src/model/models.ts)) salvato
 nella `workpath` scelta dall'utente.
 
+## Documentazione
+
+Documentazione in [`docs/`](docs) (con diagrammi Mermaid), in due lingue e due livelli:
+
+- **Tecnica** (per sviluppatori): [`docs/it/tecnica/`](docs/it/tecnica/README.md) /
+  [`docs/en/technical/`](docs/en/technical/README.md) — panoramica, architettura, modello dati,
+  pagine frontend, state Redux, backend Rust, scansione mod/datapack/keybind, cache SQLite,
+  keybinds, import/export keybind, JVM, editor Documents, versioning/build, helper di libreria.
+- **Guida d'uso** (per utenti finali): [`docs/it/utilizzo/`](docs/it/utilizzo/README.md) /
+  [`docs/en/usage/`](docs/en/usage/README.md) — primi passi, dashboard, mod e datapack, keybinds,
+  import/export keybind, JVM, documenti, salvataggio e versioni.
+
+Ogni cartella parte dal proprio `README.md` (indice). La guida d'uso è derivata dalla tecnica ma
+è task-oriented e non tecnica.
+
 ## Comandi
 
 ```bash
 pnpm dev          # Next dev server (web, http://localhost:3000)
 pnpm tauri:dev    # App desktop in dev (avvia anche `pnpm dev`)
-pnpm tauri:build  # Build dell'eseguibile desktop
+pnpm tauri:build  # Build dell'eseguibile desktop (BLOCCATA senza bump, vedi sotto)
 pnpm build        # Export statico Next -> ./out (consumato da Tauri)
+pnpm bump         # Bump interattivo della versione (patch/minor/major) + commit + tag
 pnpm lint
 ```
 
 Usa **pnpm** (non npm/yarn). Per testare le feature reali serve `tauri:dev`: le API
 `@tauri-apps/plugin-*` (fs, dialog, http, sql) **non funzionano** nel solo `pnpm dev`.
+
+**Versioning + gate di build**: la versione vive in TRE file da tenere allineati
+(`package.json` = fonte di verità, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`
++ `Cargo.lock`). `pnpm bump` ([`scripts/bump-version.mjs`](scripts/bump-version.mjs))
+li aggiorna in blocco, poi crea commit + tag `vX.Y.Z`. La build è **bloccata** da
+[`scripts/check-version.mjs`](scripts/check-version.mjs) (incatenato nel
+`beforeBuildCommand` di `tauri.conf.json`, vale sia per `pnpm tauri:build` sia per
+`tauri build`): fallisce se manca il tag `v<versione>` o se ci sono commit dopo quel tag,
+costringendo a generare una versione nuova prima di ogni build.
 
 ## Stack & convenzioni
 
@@ -37,8 +62,9 @@ Usa **pnpm** (non npm/yarn). Per testare le feature reali serve `tauri:dev`: le 
   [`globals.css`](src/app/globals.css), tema `dark` forzato nel layout). Non modificare a
   mano i componenti `ui/`: rigenerali con `pnpm dlx shadcn@latest add <comp>`.
 - **TypeScript strict**. Alias import `@/*` -> root.
-- **Lingua**: testi UI in **inglese**, commenti e documentazione in **italiano** (vedi
-  [`json-data.ts`](src/lib/json-data.ts)).
+- **Lingua**: commenti e documentazione in **italiano** (vedi [`json-data.ts`](src/lib/json-data.ts)).
+  L'interfaccia è **internazionalizzata** (i18n): le stringhe UI NON vanno hardcoded ma passano da
+  `t("namespace.key")` (vedi sotto). L'inglese resta la lingua base/fallback.
 
 ## Architettura
 
@@ -64,6 +90,15 @@ Usa **pnpm** (non npm/yarn). Per testare le feature reali serve `tauri:dev`: le 
   (`"mods[name=jei].version"`). Sono **immutabili** (ritornano un nuovo oggetto): usale per
   ogni modifica al project prima di fare `dispatch(updateProject(...))`. È il pattern
   centrale usato in [`page.tsx`](src/app/page.tsx) via `handleUpdateField`.
+- **i18n**: sistema custom leggero in [`src/i18n`](src/i18n) — `I18nProvider`
+  ([`i18n-provider.tsx`](src/i18n/i18n-provider.tsx)) montato in `layout.tsx`, hook `useTranslation()`
+  → `t("namespace.key", vars?)` con fallback all'inglese e interpolazione `{var}`; dizionari
+  [`locales/en.json`](src/i18n/locales/en.json) (base) e [`locales/it.json`](src/i18n/locales/it.json)
+  con **parità di chiavi**; lingua persistita in `localStorage`; selettore in
+  [`language-switcher.tsx`](src/components/language-switcher.tsx). **Regola**: `t` va chiamato solo
+  dentro componenti/hook (mai a livello di modulo). I **dati persistiti** nel `project.json` (tag di
+  default, categoria "Vanilla", label vanilla, tipi di asset) restano in **inglese canonico**: si
+  localizza solo la visualizzazione. Dettagli in [`docs/it/tecnica/14-i18n.md`](docs/it/tecnica/14-i18n.md).
 - **Layout**: [`layout.tsx`](src/app/layout.tsx) monta `ReduxProvider`, sidebar
   ([`app-sidebar.tsx`](src/components/app-sidebar.tsx)), header, la `<SaveBar />` globale e il
   `<Toaster />` di sonner (necessario perché i `toast(...)` siano visibili — va montato una sola
@@ -99,6 +134,17 @@ Usa **pnpm** (non npm/yarn). Per testare le feature reali serve `tauri:dev`: le 
   molte dipendenze sono bundlate nel jar). `mandatory` considera sia `mandatory=` (Forge classico)
   sia `type="required"|"optional"` (formato nuovo). I comandi applicativi non richiedono permessi
   capability (a differenza dei comandi dei plugin). La scansione usa `std::fs`, non plugin-fs.
+- **Scansione datapack (Rust)**: `mods.rs` espone anche `scan_datapacks(dir)` che legge una cartella
+  e per ogni `.zip`/cartella con `pack.mcmeta` estrae `ScannedDatapack[]` (filename, name, description
+  appiattita dal text component, `packFormat`). Cache SQLite `datapacks:<dir>` in
+  [`datapacks-scan.ts`](src/lib/datapacks-scan.ts). Usata da List Mods quando il loader è **datapack**.
+- **Loader `datapack` + ibrido**: la home ha un quinto loader **Datapack** (senza versione di loader,
+  dipende solo dalla versione MC). Selezionandolo compare la spunta **Hybrid** (`modloader.hybrid`) che
+  abilita anche un loader classico (`modloader.hybridLoader` + versione) → modpack con mods **e**
+  datapack. La cartella datapack è configurabile (`configs.datapacksPath`, path assoluto; default
+  `<workpath>/datapacks`). **List Mods** ([`listmods/page.tsx`](src/app/listmods/page.tsx)) mostra:
+  solo la tabella datapack se loader=datapack puro, mods+datapack se ibrido, solo mods se loader
+  classico. I datapack sono persistiti in `project.datapacks` (con `active` per filename, come le mod).
 - **Riconoscimento keybind (Rust)**: `collect_keybinds` (in `scan_mods`) legge le chiavi keybind
   dai file `assets/*/lang/en_us.json` (`{key, label}`, dedup). Il riconoscimento (`is_keybind_key`)
   NON si limita a `key.*`: i mod usano prefissi molto diversi (`key.jei.x`, `cos.key.x`,

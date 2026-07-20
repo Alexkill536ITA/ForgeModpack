@@ -3,6 +3,7 @@ export enum modloaderTypes {
     NEOFORGE = "neoforge",
     FABRIC = "fabric",
     QUILT = "quilt",
+    DATAPACK = "datapack",
     UNKNOWN = "unknown",
 };
 
@@ -16,15 +17,26 @@ export type project = {
         mcversion: string,
         type: modloaderTypes,
         version: string,
+        // Modalità IBRIDA: quando `type === datapack`, se `hybrid` è true il
+        // modpack include ANCHE un loader classico (mods). `hybridLoader` è il
+        // loader classico scelto; `version` in tal caso è la sua versione.
+        hybrid?: boolean,
+        hybridLoader?: modloaderTypes,
     },
     assetes: asset[],
+    notes?: string[], // note libere del progetto; opzionale = retrocompatibile
     mods: mod[],
+    datapacks?: datapack[], // datapack del modpack; opzionale = retrocompatibile
     keybindMaps: keybindMap[],
     keybindCategories: keybindCategory[],
     keybindTags: keybindTag[],
     jvm: jvmSettings,
     configs: {
-        workpath: string
+        workpath: string,
+        // Cartella dei datapack (path assoluto). Se assente/vuoto, default
+        // <workpath>/datapacks. Configurabile perché la posizione varia (per
+        // mondo lato client, world/datapacks lato server, ecc.).
+        datapacksPath?: string,
     },
 };
 
@@ -55,16 +67,28 @@ export type mod = {
 };
 
 export type asset = {
-    name: string,
-    description: string,
-    path: string,
-    type: string,
+    type: string,          // tipo della risorsa (es. Resource Pack, Shader Pack...)
+    name: string,          // nome della risorsa
+    path: string,          // path relativo alla workpath
+    url?: string,          // link/url della fonte esterna (opzionale)
+    notes?: string[],      // note libere della singola risorsa (opzionale)
+    description?: string,  // descrizione opzionale (legacy)
 };
 
 export type dependency = {
     name: string,
     version: string,
     mandatory: boolean,
+};
+
+// Un datapack del modpack, scansionato dalla cartella datapacks (file .zip o
+// cartella con pack.mcmeta). `active` è gestito come per le mod.
+export type datapack = {
+    active: boolean,
+    filename: string,       // nome del file .zip o della cartella
+    name: string,
+    description?: string,
+    packFormat?: number,    // pack_format da pack.mcmeta
 };
 
 export type keybind = {

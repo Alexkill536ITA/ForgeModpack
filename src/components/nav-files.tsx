@@ -16,6 +16,7 @@ import { cn } from "../lib/utils"
 import { useAppDispatch, useAppSelector } from "../redux/hooks"
 import { openDocument } from "../redux/documents-slice"
 import { ScrollArea, ScrollBar } from "./ui/scroll-area"
+import { useTranslation } from "@/src/i18n/i18n-provider"
 
 // Cartelle del modpack mostrate nell'albero (lette dalla workpath).
 const ROOT_FOLDERS = ["config", "kubejs"]
@@ -107,6 +108,7 @@ function removeFileNodeByPath(nodes: FileNode[], path: string): FileNode[] {
  * Si nasconde se non c'è un progetto caricato.
  */
 export function NavFiles() {
+  const { t } = useTranslation()
   const dispatch = useAppDispatch()
   const router = useRouter()
   const project = useAppSelector((s) => s.project.project)
@@ -172,17 +174,17 @@ export function NavFiles() {
 
   return (
     <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-      <SidebarGroupLabel>Files</SidebarGroupLabel>
-      <SidebarGroupAction title="Refresh" onClick={() => void loadTree()} disabled={loading}>
+      <SidebarGroupLabel>{t("files.title")}</SidebarGroupLabel>
+      <SidebarGroupAction title={t("files.refresh")} onClick={() => void loadTree()} disabled={loading}>
         <RefreshCcwIcon className={cn(loading && "animate-spin")} />
-        <span className="sr-only">Refresh</span>
+        <span className="sr-only">{t("files.refresh")}</span>
       </SidebarGroupAction>
       <ScrollArea className="h-[70vh]">
         <div className="px-1">
           {loading && roots.length === 0 ? (
-            <p className="px-2 py-1.5 text-xs text-muted-foreground">Reading folders…</p>
+            <p className="px-2 py-1.5 text-xs text-muted-foreground">{t("files.readingFolders")}</p>
           ) : roots.length === 0 ? (
-            <p className="px-2 py-1.5 text-xs text-muted-foreground">No config/kubejs folder.</p>
+            <p className="px-2 py-1.5 text-xs text-muted-foreground">{t("files.noFolder")}</p>
           ) : (
             <FileTree
               roots={roots}

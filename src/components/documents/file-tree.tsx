@@ -19,6 +19,7 @@ import { join } from "@tauri-apps/api/path"
 import { cn } from "../../lib/utils"
 import { Button } from "../ui/button"
 import { useConfirm } from "@/src/providers/confirm-dialog-provider"
+import { useTranslation } from "@/src/i18n/i18n-provider"
 
 // Nodo dell'albero, rispecchia la struct `FileNode` del comando Rust `read_dir_tree`.
 export interface FileNode {
@@ -50,6 +51,7 @@ function NewFileRow({
 }) {
   const [value, setValue] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
+  const { t } = useTranslation()
   const pad = { paddingLeft: `${depth * 0.75 + 0.5}rem` }
 
   useEffect(() => {
@@ -82,7 +84,7 @@ function NewFileRow({
               onCancel()
             }
           }}
-          placeholder="nome-file.json"
+          placeholder={t("fileTree.newFilePlaceholder")}
           className="min-w-0 flex-1 rounded-sm border border-input bg-background px-1 py-0 text-sm outline-none focus:ring-1 focus:ring-ring"
         />
       </div>
@@ -116,6 +118,7 @@ function TreeNode({
   // Hook in cima al componente: non deve dipendere da rami condizionali
   // (node.isDir), altrimenti viola le regole degli hook di React.
   const { confirm } = useConfirm()
+  const { t } = useTranslation()
 
   // Rientro proporzionale alla profondità (la riga parte sempre dal bordo).
   const pad = { paddingLeft: `${depth * 0.75 + 0.5}rem` }
@@ -126,7 +129,7 @@ function TreeNode({
       const fullPath = await join(node.path, name)
 
       if (await exists(fullPath)) {
-        setError("Esiste già un file con questo nome")
+        setError(t("fileTree.errorFileExists"))
         return
       }
 
@@ -141,7 +144,7 @@ function TreeNode({
       setCreating(false)
     } catch (err) {
       console.error("Creazione file fallita:", err)
-      setError("Creazione file fallita")
+      setError(t("fileTree.errorCreateFailed"))
     }
   }
 
@@ -168,7 +171,7 @@ function TreeNode({
           <Button
             variant={"ghost"}
             type="button"
-            title="Nuovo file"
+            title={t("fileTree.newFile")}
             onClick={(e) => {
               e.stopPropagation()
               setOpen(true)
@@ -224,7 +227,7 @@ function TreeNode({
       // Non dovrebbe succedere: solo i file (mai le root, che sono cartelle)
       // possono essere rinominati, e ogni file ha sempre una cartella padre.
       console.error("Rinomina fallita: percorso padre sconosciuto")
-      setError("Rinomina fallita")
+      setError(t("fileTree.errorRenameFailed"))
       return
     }
 
@@ -234,7 +237,7 @@ function TreeNode({
       const fullPath = await join(parentPath, newName)
 
       if (fullPath !== node.path && (await exists(fullPath))) {
-        setError("Esiste già un file con questo nome")
+        setError(t("fileTree.errorFileExists"))
         return
       }
 
@@ -248,19 +251,19 @@ function TreeNode({
       onSelect(newNode)
     } catch (err) {
       console.error("Rinomina fallita:", err)
-      setError("Rinomina fallita")
+      setError(t("fileTree.errorRenameFailed"))
     }
   }
 
   async function handleDelete() {
-    const res = await confirm({ type: "delete", title: `Are you sure you want to delete ${node.name}` })
+    const res = await confirm({ type: "delete", title: t("fileTree.deleteConfirmTitle", { name: node.name }) })
     if (!res) return
     try {
       await remove(node.path)
       onFileDeleted(node)
     } catch (err) {
       console.error("Eliminazione fallita:", err)
-      alert("Impossibile eliminare il file")
+      alert(t("fileTree.errorDeleteFailed"))
     }
   }
 
@@ -288,10 +291,10 @@ function TreeNode({
           <Button
             variant={"ghost"}
             type="button"
-            title="Rinomina"
+            title={t("fileTree.rename")}
             onClick={(e) => {
               e.stopPropagation()
-              const newName = prompt("Nuovo nome per il file:", node.name)
+              const newName = prompt(t("fileTree.renamePrompt"), node.name)
               if (newName && newName !== node.name) void handleRename(newName)
             }}
             className="rounded-sm p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:opacity-100"
@@ -301,7 +304,7 @@ function TreeNode({
           <Button
             variant={"ghost"}
             type="button"
-            title="Elimina"
+            title={t("fileTree.delete")}
             onClick={(e) => {
               e.stopPropagation()
               void handleDelete()

@@ -34,6 +34,7 @@ import { toast } from "sonner"
 import { useConfirm } from "../providers/confirm-dialog-provider"
 import { exit } from "@tauri-apps/plugin-process"
 import { setByPath } from "../lib/json-data"
+import { useTranslation } from "@/src/i18n/i18n-provider"
 
 // ============================================================================
 // CONSTANTS - Magic strings e configurazioni centralizzate
@@ -81,10 +82,10 @@ async function parseProjectFile(raw: string): Promise<project> {
 // ============================================================================
 
 const NAV_MAIN_ITEMS = [
-  { title: "Dashboard", url: "/", icon: <LayoutDashboardIcon /> },
-  { title: "List Mods", url: "/listmods", icon: <ListIcon /> },
-  { title: "keybinds", url: "/keybinds", icon: <KeyboardIcon /> },
-  { title: "JVM", url: "/jvm", icon: <CpuIcon /> },
+  { titleKey: "sidebar.navDashboard", url: "/", icon: <LayoutDashboardIcon /> },
+  { titleKey: "sidebar.navListMods", url: "/listmods", icon: <ListIcon /> },
+  { titleKey: "sidebar.navKeybinds", url: "/keybinds", icon: <KeyboardIcon /> },
+  { titleKey: "sidebar.navJvm", url: "/jvm", icon: <CpuIcon /> },
 ]
 
 // ============================================================================
@@ -92,6 +93,7 @@ const NAV_MAIN_ITEMS = [
 // ============================================================================
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const { t } = useTranslation()
   const { confirm } = useConfirm()
   const dispatch = useAppDispatch()
   const projectState = useAppSelector((state) => state.project.project)
@@ -112,8 +114,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
     const result = await confirm({
       type: "cancel/continue/save",
-      title: "Warning Unsaved Changes",
-      message: "You have unsaved changes. Do you want to save them?",
+      title: t("sidebar.unsavedTitle"),
+      message: t("sidebar.unsavedMessage"),
       without: true,
     })
 
@@ -135,7 +137,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       metadata: { name: "", version: "", description: "" },
       modloader: { mcversion: "", type: modloaderTypes.FORGE, version: "" },
       assetes: [],
+      notes: [],
       mods: [],
+      datapacks: [],
       keybindMaps: [],
       keybindCategories: [],
       keybindTags: [],
@@ -158,7 +162,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     try {
       raw = await readTextFile(selected)
     } catch (error) {
-      notifyError("Failed to read file", error)
+      notifyError(t("sidebar.readFileFailed"), error)
       return
     }
 
@@ -166,7 +170,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     try {
       parsed = await parseProjectFile(raw)
     } catch (error) {
-      notifyError("Invalid project file format", error)
+      notifyError(t("sidebar.invalidProjectFile"), error)
       return
     }
 
@@ -174,7 +178,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     dispatch(loadProject({
       ...parsed,
       assetes: parsed.assetes ?? [],
+      notes: parsed.notes ?? [],
       mods: parsed.mods ?? [],
+      datapacks: parsed.datapacks ?? [],
       keybindMaps: parsed.keybindMaps ?? [],
       keybindCategories: parsed.keybindCategories ?? [],
       keybindTags: parsed.keybindTags ?? [],
@@ -191,7 +197,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     if (!projectState) return
 
     if (!projectState.metadata.name.trim()) {
-      notifyError("Set a project name before saving")
+      notifyError(t("sidebar.setNameBeforeSaving"))
       return
     }
 
@@ -199,9 +205,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       const filePath = await join(projectState.configs.workpath, `${projectState.metadata.name}.${PROJECT_FILE_EXTENSION}`)
       await writeProjectFile(filePath, projectState)
       dispatch(markSaved())
-      notifySuccess("Saved successfully")
+      notifySuccess(t("sidebar.savedSuccessfully"))
     } catch (error) {
-      notifyError("Save failed", error)
+      notifyError(t("sidebar.saveFailed"), error)
     }
   }
 
@@ -210,7 +216,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
     try {
       const selected = await save({
-        title: "Save Project As",
+        title: t("sidebar.saveProjectAs"),
         filters: [{ name: "Project", extensions: [PROJECT_FILE_EXTENSION] }],
       })
       if (!selected) return // utente ha annullato il dialog
@@ -226,9 +232,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         configs: { ...projectState.configs, workpath: newWorkpath },
       }))
       dispatch(markSaved())
-      notifySuccess("Saved successfully")
+      notifySuccess(t("sidebar.savedSuccessfully"))
     } catch (error) {
-      notifyError("Save failed", error)
+      notifyError(t("sidebar.saveFailed"), error)
     }
   }
 
@@ -327,33 +333,33 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <span className="text-base font-semibold">Forge Modpack</span>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56" aria-label="Project menu">
-                <DropdownMenuLabel>File</DropdownMenuLabel>
+              <DropdownMenuContent className="w-56" aria-label={t("sidebar.projectMenuAria")}>
+                <DropdownMenuLabel>{t("sidebar.file")}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
                   <DropdownMenuItem
                     className="flex justify-between items-center"
                     onClick={newProject}
-                    aria-label="New project (Ctrl+N)"
+                    aria-label={t("sidebar.newAria")}
                   >
-                    <span>New</span>
+                    <span>{t("sidebar.new")}</span>
                     <span className="text-xs text-muted-foreground">Ctrl + N</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="flex justify-between items-center"
                     onClick={openProject}
-                    aria-label="Open project (Ctrl+O)"
+                    aria-label={t("sidebar.openAria")}
                   >
-                    <span>Open</span>
+                    <span>{t("sidebar.open")}</span>
                     <span className="text-xs text-muted-foreground">Ctrl + O</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     disabled={!projectState}
                     className="flex justify-between items-center"
                     onClick={closeProject}
-                    aria-label="Close project (Ctrl+W)"
+                    aria-label={t("sidebar.closeAria")}
                   >
-                    <span>Close</span>
+                    <span>{t("sidebar.close")}</span>
                     <span className="text-xs text-muted-foreground">Ctrl + W</span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
@@ -363,18 +369,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     disabled={!projectState}
                     className="flex justify-between items-center"
                     onClick={saveProject}
-                    aria-label="Save project (Ctrl+S)"
+                    aria-label={t("sidebar.saveAria")}
                   >
-                    <span>Save</span>
+                    <span>{t("sidebar.save")}</span>
                     <span className="text-xs text-muted-foreground">Ctrl + S</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     disabled={!projectState}
                     className="flex justify-between items-center"
                     onClick={saveAsProject}
-                    aria-label="Save project as (Ctrl+Shift+S)"
+                    aria-label={t("sidebar.saveAsAria")}
                   >
-                    <span>Save As</span>
+                    <span>{t("sidebar.saveAs")}</span>
                     <span className="text-xs text-muted-foreground">Ctrl + Shift + S</span>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
@@ -382,17 +388,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 <DropdownMenuItem
                   disabled={!projectState}
                   onClick={changeWorkspace}
-                  aria-label="Change workspace"
+                  aria-label={t("sidebar.changeWorkspaceAria")}
                 >
-                  <span>Change Workspace</span>
+                  <span>{t("sidebar.changeWorkspace")}</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="flex justify-between items-center text-destructive hover:bg-destructive/30!"
                   onClick={exitApp}
-                  aria-label="Exit application (Ctrl+Q)"
+                  aria-label={t("sidebar.exitAria")}
                 >
-                  <span>Exit</span>
+                  <span>{t("sidebar.exit")}</span>
                   <span className="text-xs text-muted-foreground">Ctrl + Q</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -401,7 +407,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={NAV_MAIN_ITEMS} />
+        <NavMain items={NAV_MAIN_ITEMS.map((item) => ({ ...item, title: t(item.titleKey) }))} />
         <NavFiles />
       </SidebarContent>
       <SidebarFooter>

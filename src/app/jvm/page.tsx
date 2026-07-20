@@ -4,6 +4,7 @@ import { useCallback } from "react"
 import { CopyIcon, SlidersVerticalIcon, TerminalSquareIcon } from "lucide-react"
 import { toast } from "sonner"
 
+import { useTranslation } from "@/src/i18n/i18n-provider"
 import { ProjectGate } from "../../components/project-gate"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card"
 import { Button } from "../../components/ui/button"
@@ -29,6 +30,7 @@ function colorizeFlag(flag: string) {
 
 function JvmSettings({ project }: { project: project }) {
   const dispatch = useAppDispatch()
+  const { t } = useTranslation()
 
   const { ramGb, gc } = project.jvm
   const flags = buildFlags(ramGb, gc)
@@ -44,9 +46,9 @@ function JvmSettings({ project }: { project: project }) {
   const copyFlags = useCallback(() => {
     navigator.clipboard
       ?.writeText(flags.join(" "))
-      .then(() => toast.success("JVM arguments copied", { style: toastStyles.success }))
-      .catch(() => toast.error("Could not copy", { style: toastStyles.destructive }))
-  }, [flags])
+      .then(() => toast.success(t("jvm.copied"), { style: toastStyles.success }))
+      .catch(() => toast.error(t("jvm.copyFailed"), { style: toastStyles.destructive }))
+  }, [flags, t])
 
   return (
     <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[340px_1fr]">
@@ -58,14 +60,14 @@ function JvmSettings({ project }: { project: project }) {
               <SlidersVerticalIcon className="size-6" />
             </div>
             <CardTitle className="text-xl uppercase">
-              Memory parameters
+              {t("jvm.memoryParameters")}
             </CardTitle>
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
           <div>
             <label className="mb-3 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Heap allocation (-Xmx)
+              {t("jvm.heapAllocation")}
             </label>
             <div className="flex items-center gap-3">
               <Slider
@@ -84,7 +86,7 @@ function JvmSettings({ project }: { project: project }) {
 
           <div>
             <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Garbage collector
+              {t("jvm.garbageCollector")}
             </label>
             <div className="flex overflow-hidden rounded-lg border bg-muted/40">
               {GC_OPTIONS.map(({ key, label }) => (
@@ -115,11 +117,11 @@ function JvmSettings({ project }: { project: project }) {
               <TerminalSquareIcon className="size-6" />
             </div>
             <CardTitle className="text-xl uppercase tracking-wider">
-              Generated JVM arguments
+              {t("jvm.generatedArguments")}
             </CardTitle>
           </div>
           <Button variant="outline" size="sm" onClick={copyFlags}>
-            <CopyIcon className="size-4" /> Copy
+            <CopyIcon className="size-4" /> {t("jvm.copy")}
           </Button>
         </CardHeader>
         <CardContent>

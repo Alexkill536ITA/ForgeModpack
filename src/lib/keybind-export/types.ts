@@ -22,10 +22,13 @@ export interface ExportResult {
 }
 
 export interface KeybindExporter {
-  id: string               // "options-txt" | "keyset"
+  id: string               // "options-txt" | "keyset" | "html-view" | "image-png"
   label: string            // etichetta mostrata nel dialog
   defaultFileName: string  // "options.txt"
   available: boolean       // false = disabilitato in UI (formato non pronto)
+  // Se true, `content` NON è testo da scrivere direttamente ma il markup SVG da
+  // rasterizzare in immagine (PNG) lato UI, prima della scrittura binaria.
+  image?: boolean
   build: (map: keybindMap, ctx: ExportContext) => Promise<ExportResult>
   // Opzionale: esporta TUTTE le mappe in un solo file (formati multi-profilo
   // come keyset, dove ogni keybindMap diventa un profilo). Se assente, la UI

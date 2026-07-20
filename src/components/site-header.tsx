@@ -3,8 +3,11 @@
 import { Separator } from "../components/ui/separator"
 import { SidebarTrigger } from "../components/ui/sidebar"
 import { useAppSelector } from "../redux/hooks"
+import { useTranslation } from "../i18n/i18n-provider"
+import { LanguageSwitcher } from "./language-switcher"
 
 export function SiteHeader() {
+  const { t } = useTranslation()
   // Nome del progetto corrente; fallback quando nessun progetto è caricato.
   const name = useAppSelector((s) => s.project.project?.metadata.name)
 
@@ -16,7 +19,10 @@ export function SiteHeader() {
           orientation="vertical"
           className="mx-2 data-[orientation=vertical]:h-4"
         />
-        <h1 className="text-base font-medium">{name?.trim() || "No project"}</h1>
+        <h1 className="text-base font-medium">{name?.trim() || t("header.noProject")}</h1>
+        <div className="ml-auto">
+          <LanguageSwitcher />
+        </div>
       </div>
     </header>
   )

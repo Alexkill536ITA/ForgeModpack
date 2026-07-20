@@ -36,6 +36,7 @@ import { getModsScanCached } from "../../lib/mods-scan"
 import { useAppDispatch } from "../../redux/hooks"
 import { updateProject } from "../../redux/project-slice"
 import { setKeybindActions } from "../../redux/keybind-actions-slice"
+import { useTranslation } from "@/src/i18n/i18n-provider"
 
 // Estrae tutte le chiavi di binding (actionKey) da un keybindprofiles.json, per
 // la risoluzione mirata delle label/mod. Difensivo: torna [] se il JSON è rotto.
@@ -54,11 +55,11 @@ function collectActionKeys(content: string): string[] {
   }
 }
 
-// Messaggi di warning (toast) per tipo di problema.
-const REASON_TOAST: Record<ImportIssueReason, (n: number) => string> = {
-  "not-installed": (n) => `${n} binding(s) for mods not installed were skipped.`,
-  unmapped: (n) => `${n} key(s) could not be mapped to the layout and were skipped.`,
-  overflow: (n) => `${n} binding(s) exceeded the 4-per-key limit and were skipped.`,
+// Chiavi i18n dei messaggi di warning (toast) per tipo di problema.
+const REASON_TOAST_KEY: Record<ImportIssueReason, string> = {
+  "not-installed": "keybindIo.reasonNotInstalled",
+  unmapped: "keybindIo.reasonUnmapped",
+  overflow: "keybindIo.reasonOverflow",
 }
 
 export function ImportDialog({
@@ -74,6 +75,7 @@ export function ImportDialog({
   onImported: (report: ImportReport) => void
 }) {
   const dispatch = useAppDispatch()
+  const { t } = useTranslation()
   const [importerId, setImporterId] = useState(IMPORTERS[0]?.id ?? "")
   const [source, setSource] = useState<"workpath" | "choose">("workpath")
   const [busy, setBusy] = useState(false)
@@ -89,7 +91,7 @@ export function ImportDialog({
       if (source === "workpath") {
         const path = await join(project.configs.workpath, ...importer.relativePath)
         if (!(await exists(path))) {
-          toast.error(`No ${importer.defaultFileName} found in the project folder.`, {
+          toast.error(t("keybindIo.noFileInProjectFolder", { defaultFileName: importer.defaultFileName }), {
             style: toastStyles.destructive,
           })
           return
@@ -153,7 +155,7 @@ export function ImportDialog({
       const ctx: ImportContext = { project, installedMods, actionsByModId, resolvedByKey }
       const res = importer.parse(content, ctx)
       if (res.maps.length === 0) {
-        toast.warning("No profiles found in the file.", { style: toastStyles.warning })
+        toast.warning(t("keybindIo.noProfilesFound"), { style: toastStyles.warning })
         return
       }
 
@@ -172,7 +174,7 @@ export function ImportDialog({
 
       // 5) Toast di esito + warning per tipo di problema (i dettagli riga per
       //    riga finiscono nella tabella in pagina via onImported).
-      toast.success(`Imported ${res.report.maps} map(s), ${res.report.bindings} binding(s).`, {
+      toast.success(t("keybindIo.importSuccess", { maps: res.report.maps, bindings: res.report.bindings }), {
         style: toastStyles.success,
       })
       const counts = res.report.issues.reduce<Record<string, number>>((acc, iss) => {
@@ -180,14 +182,14 @@ export function ImportDialog({
         return acc
       }, {})
       for (const reason of Object.keys(counts) as ImportIssueReason[]) {
-        toast.warning(REASON_TOAST[reason](counts[reason]), { style: toastStyles.warning })
+        toast.warning(t(REASON_TOAST_KEY[reason], { count: counts[reason] }), { style: toastStyles.warning })
       }
 
       onImported(res.report)
       onOpenChange(false)
     } catch (err) {
       console.error(err)
-      toast.error("Import failed", { style: toastStyles.destructive })
+      toast.error(t("keybindIo.importFailed"), { style: toastStyles.destructive })
     } finally {
       setBusy(false)
     }
@@ -197,12 +199,12 @@ export function ImportDialog({
     <Dialog open={dialogOpen} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Import keybinds</DialogTitle>
+          <DialogTitle>{t("keybindIo.importTitle")}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Format</Label>
+            <Label>{t("keybindIo.format")}</Label>
             <Select value={importerId} onValueChange={setImporterId}>
               <SelectTrigger className="w-full">
                 <SelectValue />
@@ -218,27 +220,26 @@ export function ImportDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>Source</Label>
+            <Label>{t("keybindIo.source")}</Label>
             <Select value={source} onValueChange={(v) => setSource(v as "workpath" | "choose")}>
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="workpath">Project folder ({importer?.defaultFileName})</SelectItem>
-                <SelectItem value="choose">Choose file…</SelectItem>
+                <SelectItem value="workpath">{t("keybindIo.projectFolder", { defaultFileName: importer?.defaultFileName ?? "" })}</SelectItem>
+                <SelectItem value="choose">{t("keybindIo.chooseFile")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Profiles become keybind maps. Maps with the same name are replaced;
-            missing mods are added automatically.
+            {t("keybindIo.importDescription")}
           </p>
         </div>
 
         <DialogFooter>
           <Button type="button" onClick={handleImport} disabled={busy || !importer?.available}>
-            <UploadIcon /> Import
+            <UploadIcon /> {t("keybindIo.import")}
           </Button>
         </DialogFooter>
       </DialogContent>

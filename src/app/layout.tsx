@@ -13,6 +13,7 @@ import { SaveBar } from "../components/save-bar";
 import { Toaster } from "../components/ui/sonner";
 import ReduxProvider from "../redux/redux-provider";
 import { ConfirmProvider } from "../providers/confirm-dialog-provider";
+import { I18nProvider } from "../i18n/i18n-provider";
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
 
@@ -22,11 +23,12 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="it" className={cn("font-sans dark", geist.variable)}>
+    <html lang="en" className={cn("font-sans dark", geist.variable)}>
       <body>
         <ReduxProvider>
-          <TooltipProvider>
-            <ConfirmProvider>
+          <I18nProvider>
+            <TooltipProvider>
+              <ConfirmProvider>
               <SidebarProvider
                 style={
                   {
@@ -52,7 +54,8 @@ export default function RootLayout({
               </SidebarProvider>
             </ConfirmProvider>
           </TooltipProvider>
-          <Toaster />
+            <Toaster />
+          </I18nProvider>
         </ReduxProvider>
       </body>
     </html>

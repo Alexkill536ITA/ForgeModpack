@@ -9,12 +9,14 @@ import { Separator } from "./ui/separator"
 import { useAppDispatch, useAppSelector } from "../redux/hooks"
 import { loadProject } from "../redux/project-slice"
 import { defaultJvmSettings, modloaderTypes, project } from "../model/models"
+import { useTranslation } from "@/src/i18n/i18n-provider"
 
 /**
  * Blocco mostrato quando nessun progetto è caricato: permette di crearne uno
  * nuovo (scegliendo la directory di lavoro) o di aprirne uno esistente da file.
  */
 function NoProjectSelected() {
+  const { t } = useTranslation()
   const dispatch = useAppDispatch()
 
   async function handleCreate() {
@@ -25,7 +27,9 @@ function NoProjectSelected() {
       metadata: { name: "", version: "", description: "" },
       modloader: { mcversion: "", type: modloaderTypes.FORGE, version: "" },
       assetes: [],
+      notes: [],
       mods: [],
+      datapacks: [],
       keybindMaps: [],
       keybindCategories: [],
       keybindTags: [],
@@ -48,7 +52,9 @@ function NoProjectSelected() {
     dispatch(loadProject({
       ...parsed,
       assetes: parsed.assetes ?? [],
+      notes: parsed.notes ?? [],
       mods: parsed.mods ?? [],
+      datapacks: parsed.datapacks ?? [],
       keybindMaps: parsed.keybindMaps ?? [],
       keybindCategories: parsed.keybindCategories ?? [],
       keybindTags: parsed.keybindTags ?? [],
@@ -58,12 +64,12 @@ function NoProjectSelected() {
 
   return (
     <div className="h-[85vh] flex flex-col align-middle items-center justify-center gap-4">
-      <h1 className="text-2xl font-bold">No project selected</h1>
-      <p className="text-lg text-muted-foreground">Create a new project or Select a project to get started.</p>
+      <h1 className="text-2xl font-bold">{t("projectGate.noProjectSelected")}</h1>
+      <p className="text-lg text-muted-foreground">{t("projectGate.getStarted")}</p>
       <div className="w-full max-w-xs space-y-2">
-        <Button type="button" className="w-full" onClick={handleCreate}>Create</Button>
+        <Button type="button" className="w-full" onClick={handleCreate}>{t("projectGate.create")}</Button>
         <Separator className="mb-2" />
-        <Button type="button" className="w-full" onClick={handleOpen}>Open</Button>
+        <Button type="button" className="w-full" onClick={handleOpen}>{t("projectGate.open")}</Button>
       </div>
     </div>
   )
