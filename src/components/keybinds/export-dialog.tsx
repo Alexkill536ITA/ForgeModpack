@@ -38,18 +38,28 @@ export function ExportDialog({
   defaultMapIndex: number
 }) {
   const maps = project.keybindMaps
-  const [mapIndex, setMapIndex] = useState(defaultMapIndex)
+  // Selezione mappa: indice come stringa, oppure "all" (solo per exporter
+  // multi-profilo che espongono `buildAll`).
+  const [mapSel, setMapSel] = useState<string>(String(defaultMapIndex))
   const [exporterId, setExporterId] = useState(EXPORTERS[0]?.id ?? "")
   const [dest, setDest] = useState<"workpath" | "choose">("workpath")
   const [busy, setBusy] = useState(false)
 
-  // Se cambia la mappa attiva del parent mentre il dialog è chiuso, riallinea.
-  const clampedMap = mapIndex < maps.length ? mapIndex : 0
   const exporter = getExporter(exporterId)
+  const supportsAll = !!exporter?.buildAll
+  // "all" è valido solo se l'exporter lo supporta; altrimenti ripiega su una
+  // mappa. Se cambia il set di mappe mentre il dialog è chiuso, riallinea.
+  const effectiveSel =
+    mapSel === "all"
+      ? supportsAll
+        ? "all"
+        : "0"
+      : Number(mapSel) < maps.length
+        ? mapSel
+        : "0"
 
   async function handleExport() {
-    const map = maps[clampedMap]
-    if (!exporter || !exporter.available || !map) return
+    if (!exporter || !exporter.available || maps.length === 0) return
     setBusy(true)
     try {
       const ctx: ExportContext = {
@@ -57,7 +67,10 @@ export function ExportDialog({
         workpath: project.configs.workpath,
         readExisting: async (p) => ((await exists(p)) ? await readTextFile(p) : null),
       }
-      const res = await exporter.build(map, ctx)
+      const res =
+        effectiveSel === "all" && exporter.buildAll
+          ? await exporter.buildAll(maps, ctx)
+          : await exporter.build(maps[Number(effectiveSel)], ctx)
 
       let target = res.suggestedPath
       if (dest === "choose") {
@@ -99,11 +112,12 @@ export function ExportDialog({
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Map</Label>
-              <Select value={String(clampedMap)} onValueChange={(v) => setMapIndex(Number(v))}>
+              <Select value={effectiveSel} onValueChange={setMapSel}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  {supportsAll && <SelectItem value="all">All maps</SelectItem>}
                   {maps.map((m, i) => (
                     <SelectItem key={i} value={String(i)}>{m.name}</SelectItem>
                   ))}

@@ -89,27 +89,44 @@ Usa **pnpm** (non npm/yarn). Per testare le feature reali serve `tauri:dev`: le 
   del loader: Forge `META-INF/mods.toml`, NeoForge `META-INF/neoforge.mods.toml` (crate `toml`),
   Fabric `fabric.mod.json`, Quilt `quilt.mod.json` (`serde_json`). Ritorna `ScannedMod[]`
   (filename, modId, name, modloader, version, description, authors, dependencies con
-  `mandatory`, `provides`); fallback "unknown" col solo filename per jar non riconosciuti.
+  `mandatory`, `provides`, **`keybinds`**); fallback "unknown" col solo filename per jar non riconosciuti.
+  **Scansione UNIFICATA**: nella stessa apertura del jar `scan_mods` legge anche le keybind
+  (`collect_keybinds`), così ogni jar è aperto una sola volta per metadati + keybind (non esiste più
+  un comando `scan_keybinds` separato).
   `provides` = TUTTI i modId messi a disposizione dal jar: più `[[mods]]`, campo `provides` e
   **dipendenze incluse via JarJar** (`META-INF/jarjar/*.jar`, lette ricorsivamente). Serve a
   evitare falsi "dipendenza mancante" nella verifica (le deps referenziano modId, e su Forge
   molte dipendenze sono bundlate nel jar). `mandatory` considera sia `mandatory=` (Forge classico)
   sia `type="required"|"optional"` (formato nuovo). I comandi applicativi non richiedono permessi
   capability (a differenza dei comandi dei plugin). La scansione usa `std::fs`, non plugin-fs.
-- **Scansione keybind (Rust)**: [`mods.rs`](src-tauri/src/mods.rs) espone anche `scan_keybinds(dir)`
-  che apre ogni jar e legge le chiavi di traduzione `key.*` dai file `assets/*/lang/en_us.json`
-  (escluse `key.categories.*`), ritornando `ModKeybinds[]` (`filename`, `modId`, `keybinds` =
-  `{key, label}`, dedup per chiave). Serve a popolare la lista di azioni selezionabili nel dialog
-  dei keybind, filtrata per mod. Riusa gli helper di `scan_mods` (`read_entry`, `provided_from_*`
-  per il `modId`, pattern di enumerazione `file_names()`). I JarJar non sono coperti (estensione
-  futura). Il risultato vive in uno slice Redux **runtime**
-  ([`keybind-actions-slice.ts`](src/redux/keybind-actions-slice.ts)), **non** nel `project.json`
-  (dato voluminoso e derivabile), ed è **cachato in SQLite** ([`keybind-cache.ts`](src/lib/keybind-cache.ts),
-  riusa la tabella key-value `manifest_cache` con chiave `keybinds:<workpath>`, **senza TTL**: si
-  invalida solo col refresh manuale). La pagina keybinds **non scansiona al mount** (legge solo la
-  cache via `peekKeybindActionsCache`): la scansione dei jar parte alla **conferma di Add Mod**
-  (`saveMod`, quando la mod appena aggiunta non è ancora in `byModId` → scan forzato che aggiorna la
-  cache) o dal **tasto refresh** nella card Mods (`getKeybindActionsCached(force=true)`).
+- **Riconoscimento keybind (Rust)**: `collect_keybinds` (in `scan_mods`) legge le chiavi keybind
+  dai file `assets/*/lang/en_us.json` (`{key, label}`, dedup). Il riconoscimento (`is_keybind_key`)
+  NON si limita a `key.*`: i mod usano prefissi molto diversi (`key.jei.x`, `cos.key.x`,
+  `create.keyinfo.x`, `iris.keybind.x`, `keybind.simplyjetpacks.x`, `mod.chiselsandbits.keys.x`),
+  quindi una chiave è keybind se ha un **segmento marcatore**
+  (`key`/`keys`/`keybind`/`keybinds`/`keyinfo`/`keymapping`), escludendo i titoli di categoria
+  (`.categories.`). I lang vengono letti sia top-level sia dai **JarJar annidati**
+  (`collect_lang_contents`, un livello): es. Create bundla Ponder (`key.ponder.ponder`). I mod che
+  nominano le KeyMapping senza alcun marcatore (es. `config.jsg.*`, `placebo.toggleTrails`) non sono
+  distinguibili dalle altre traduzioni e NON sono coperti da questo scan generico.
+- **Risoluzione mirata keybind (Rust)**: `mods.rs` espone `resolve_keybind_labels(dir, keys)`: date
+  le chiavi di traduzione ESATTE (es. gli `actionKey` di un `keybindprofiles.json` importato) cerca
+  per match esatto nei lang di ogni jar la `label` e il `modId` proprietario, ritornando
+  `ResolvedKeybind[]` (`key`, `label`, `modId`). Nessuna euristica → risolve anche le keybind con
+  nomi non standard senza falsi positivi. Usato dall'import ([`import-dialog.tsx`](src/components/keybinds/import-dialog.tsx)
+  via `resolveKeybindLabels` in [`keybind-cache.ts`](src/lib/keybind-cache.ts)) come primo passo
+  (più affidabile) di `resolveOwner`.
+- **Cache scansione mod (SQLite, UNICO punto dati)**: [`mods-scan.ts`](src/lib/mods-scan.ts)
+  (`getModsScanCached`/`peekModsScanCache`) chiama `scan_mods` e cacha il risultato completo
+  (metadati + `keybinds`) in un'unica entry `manifest_cache` con chiave `mods:<workpath>`, **senza
+  TTL** (si invalida solo col refresh manuale). È l'unica fonte da cui:
+  - **List Mods** ([`listmods/page.tsx`](src/app/listmods/page.tsx)) deriva `project.mods` (i metadati;
+    i `keybinds` NON vengono copiati in `project.json`, che resta leggero);
+  - **Keybinds/Import** derivano le azioni per mod: [`keybind-cache.ts`](src/lib/keybind-cache.ts)
+    (`getKeybindActionsCached`/`peekKeybindActionsCache`) mappa la scansione unificata in
+    `ModKeybinds[]` → slice Redux **runtime** ([`keybind-actions-slice.ts`](src/redux/keybind-actions-slice.ts)).
+  La pagina keybinds al mount carica la cache se presente, **altrimenti esegue la scansione unificata**
+  (così è utilizzabile anche senza aver prima aperto List Mods); refresh manuale = `force=true`.
 - **Export keybind → file di config**: [`keybind-export/`](src/lib/keybind-export) definisce
   l'astrazione `KeybindExporter` (exporter **puri**: ritornano `{content, suggestedPath, warnings}`,
   non scrivono su disco — la scrittura + toast resta nella UI). `options-txt.ts` è l'exporter
@@ -153,8 +170,9 @@ Usa **pnpm** (non npm/yarn). Per testare le feature reali serve `tauri:dev`: le 
     [`keyboard-layout.ts`](src/lib/keyboard-layout.ts) (unità rem; gli `id` dei tasti sono stabili:
     sono la chiave dei keybind). Una **nuova mappa nasce dal template**
     [`keybind-template.ts`](src/lib/keybind-template.ts) — file separato dal layout: `defaultKeybinds()`
-    (binding di base mappati sugli id del layout) + `defaultCategories()` (solo UI, Movimento,
-    Inventario), fuse nelle categorie del progetto senza duplicati. **Multi-mappa**: il progetto ha `keybindMaps: keybindMap[]` (es.
+    (i keybind VANILLA di Minecraft coi tasti di default, tutti con `actionKey` valido → esportabili)
+    + `defaultCategories()` (una sola categoria non-mod, **"Vanilla"**), fuse nelle categorie del
+    progetto senza duplicati. **Multi-mappa**: il progetto ha `keybindMaps: keybindMap[]` (es.
     "Tech & Armi", "Magia"); selettore di mappe in cima con add/remove, ognuna col proprio set
     di binding. Click su un tasto → dialog action + categoria; filtri dinamici che "dimmano" i
     tasti non in categoria. **Due assi di classificazione**: *Mod* (categoria primaria,

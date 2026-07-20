@@ -1,18 +1,21 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import type { RootState } from './store'
 
-// Azioni keybind estratte dai jar delle mod (comando Rust `scan_keybinds`).
-// Vivono SOLO a runtime, NON nel project.json: sono voluminose, derivabili dai
-// jar e cambiano quando cambia la cartella `mods`. Servono a popolare la lista
-// di azioni selezionabili nel dialog dei keybind, filtrata per mod.
+// Azioni keybind estratte dai jar delle mod (dalla scansione UNIFICATA `scan_mods`,
+// derivate via keybind-cache dalla cache SQLite `mods:<workpath>`). Vivono SOLO a
+// runtime, NON nel project.json: sono voluminose, derivabili dai jar e cambiano
+// quando cambia la cartella `mods`. Servono a popolare la lista di azioni
+// selezionabili nel dialog dei keybind, filtrata per mod.
 
-// Rispecchia la struct `KeybindAction` ritornata da Rust.
+// Rispecchia la struct `KeybindAction` ritornata da Rust (`scan_mods`).
 export interface scannedKeybindAction {
     key: string   // chiave di traduzione, es. "key.jei.toggleOverlay"
     label: string // testo leggibile (fallback: la chiave)
 }
 
-// Rispecchia la struct `ModKeybinds` ritornata da Rust.
+// Vista "per mod" delle keybind, derivata dalla scansione unificata (mods-scan.ts
+// → keybind-cache.ts). Non è più una struct Rust a sé: i keybind arrivano dentro
+// `ScannedMod.keybinds`.
 export interface modKeybinds {
     filename: string
     modId: string

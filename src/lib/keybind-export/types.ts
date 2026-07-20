@@ -27,4 +27,8 @@ export interface KeybindExporter {
   defaultFileName: string  // "options.txt"
   available: boolean       // false = disabilitato in UI (formato non pronto)
   build: (map: keybindMap, ctx: ExportContext) => Promise<ExportResult>
+  // Opzionale: esporta TUTTE le mappe in un solo file (formati multi-profilo
+  // come keyset, dove ogni keybindMap diventa un profilo). Se assente, la UI
+  // esporta una singola mappa alla volta via `build`.
+  buildAll?: (maps: keybindMap[], ctx: ExportContext) => Promise<ExportResult>
 }

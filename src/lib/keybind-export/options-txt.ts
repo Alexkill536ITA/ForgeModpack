@@ -31,9 +31,14 @@ export const optionsTxtExporter: KeybindExporter = {
       entries.set(tk, code)
     }
 
+    // Le macro (modificatore + tasto) non sono rappresentabili nel formato
+    // vanilla di options.txt: vengono saltate e segnalate.
+    const macros = map.macros?.length ?? 0
+
     if (skippedNoKey) warnings.push(`${skippedNoKey} keybind without a translation key were skipped.`)
     if (unmapped) warnings.push(`${unmapped} key(s) could not be mapped and were written as 'unknown'.`)
     if (collisions) warnings.push(`${collisions} action(s) bound to multiple keys: only the last was kept.`)
+    if (macros) warnings.push(`${macros} macro(s) with modifiers are not supported by options.txt and were skipped.`)
 
     const suggestedPath = await join(ctx.workpath, "options.txt")
     const existing = await ctx.readExisting(suggestedPath)

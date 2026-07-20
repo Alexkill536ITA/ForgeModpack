@@ -30,6 +30,15 @@ pub struct ModDependency {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct KeybindAction {
+    /// Chiave di traduzione, es. "key.jei.toggleOverlay".
+    pub key: String,
+    /// Testo leggibile dal file en_us (fallback: la chiave stessa).
+    pub label: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScannedMod {
     pub filename: String,
     pub mod_id: String,
@@ -41,6 +50,9 @@ pub struct ScannedMod {
     pub dependencies: Vec<ModDependency>,
     /// Tutti i modId forniti dal jar (incluso il principale, i provides e i JarJar).
     pub provides: Vec<String>,
+    /// Keybind definite dalla mod (chiave di traduzione + label), lette dai lang.
+    /// Incluse nella STESSA scansione dei metadati per aprire ogni jar una volta.
+    pub keybinds: Vec<KeybindAction>,
 }
 
 /// Legge il contenuto testuale di una entry dello zip, se presente.
@@ -163,6 +175,7 @@ fn parse_forge(
         authors,
         dependencies,
         provides: Vec::new(),
+        keybinds: Vec::new(),
     }
 }
 
@@ -233,6 +246,7 @@ fn parse_fabric(filename: &str, json_str: &str) -> ScannedMod {
         authors,
         dependencies,
         provides: Vec::new(),
+        keybinds: Vec::new(),
     }
 }
 
@@ -315,6 +329,7 @@ fn parse_quilt(filename: &str, json_str: &str) -> ScannedMod {
         authors,
         dependencies,
         provides: Vec::new(),
+        keybinds: Vec::new(),
     }
 }
 
@@ -442,6 +457,7 @@ fn read_mod(path: &Path) -> ScannedMod {
         authors: Vec::new(),
         dependencies: Vec::new(),
         provides: Vec::new(),
+        keybinds: Vec::new(),
     };
 
     let file = match fs::File::open(path) {
@@ -479,6 +495,9 @@ fn read_mod(path: &Path) -> ScannedMod {
     provides.dedup();
     scanned.provides = provides;
 
+    // Keybind della mod: lette nella stessa apertura del jar (un solo I/O).
+    scanned.keybinds = collect_keybinds(&mut archive);
+
     scanned
 }
 
@@ -505,26 +524,127 @@ pub fn scan_mods(dir: String) -> Result<Vec<ScannedMod>, String> {
 
 // --- Scansione delle keybind (azioni configurabili) definite da ogni mod ---
 //
-// Le azioni keybind di una mod sono chiavi di traduzione `key.*` nei file di
-// lingua `assets/<modid>/lang/en_us.json` (oggetto JSON piatto {chiave: testo}).
-// Vengono escluse le `key.categories.*` (titoli di categoria della schermata
-// Controls, non azioni vere e proprie).
+// Le keybind di una mod sono chiavi di traduzione nei file di lingua
+// `assets/<modid>/lang/en_us.json` (oggetto JSON piatto {chiave: testo}). NON
+// tutte iniziano con `key.`: i mod usano prefissi molto diversi, es.
+//   key.jei.toggleOverlay        (vanilla-style)
+//   cos.key.opencosarmorinventory / create_radar.key.binocular.fire
+//   create.keyinfo.toolbelt / railways.keyinfo.* / tfmg.keyinfo.*
+//   iris.keybind.reload / keybind.simplyjetpacks.jetpack_hover
+//   mod.chiselsandbits.keys.key.undo
+// Riconosciamo una keybind se la chiave contiene un SEGMENTO marcatore
+// (key/keys/keybind/keybinds/keyinfo/keymapping), escludendo i titoli di
+// categoria (`.categories.`).
+// LIMITE noto: alcuni mod usano nomi senza alcun marcatore (es.
+// `config.jsg.address_down`, `placebo.toggleTrails`): NON sono distinguibili
+// dalle altre traduzioni leggendo solo i lang, quindi non vengono raccolti dallo
+// scan generico (per quelle chiavi c'è `resolve_keybind_labels`, match esatto).
+//
+// Le keybind sono lette DENTRO `read_mod` (embeddate in `ScannedMod.keybinds`),
+// così ogni jar viene aperto una sola volta per metadati + keybind.
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct KeybindAction {
-    /// Chiave di traduzione, es. "key.jei.toggleOverlay".
-    pub key: String,
-    /// Testo leggibile dal file en_us (fallback: la chiave stessa).
-    pub label: String,
+/// True se la chiave di traduzione `k` è (verosimilmente) una keybind.
+fn is_keybind_key(k: &str) -> bool {
+    // Esclude i titoli di categoria della schermata Controls (non azioni).
+    if k.contains(".categories.") || k.starts_with("key.categories.") {
+        return false;
+    }
+    // Un segmento della chiave è un marcatore di keybind.
+    k.split('.').any(|seg| {
+        matches!(
+            seg,
+            "key" | "keys" | "keybind" | "keybinds" | "keyinfo" | "keymapping"
+        )
+    })
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModKeybinds {
-    pub filename: String,
-    pub mod_id: String,
-    pub keybinds: Vec<KeybindAction>,
+/// Ritorna il CONTENUTO di tutti i file `assets/*/lang/en_us.json` del jar,
+/// INCLUSI quelli nei JarJar annidati (`META-INF/jarjar/*.jar`, un livello di
+/// profondità). Serve perché alcuni mod bundlano librerie con proprie keybind:
+/// es. Create include Ponder (`key.ponder.ponder`) come JarJar.
+fn collect_lang_contents<R: Read + Seek>(archive: &mut ZipArchive<R>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+
+    // Lang top-level (raccogliere i nomi PRIMA: file_names() borrowa l'archivio).
+    let top: Vec<String> = archive
+        .file_names()
+        .filter(|n| n.starts_with("assets/") && n.ends_with("/lang/en_us.json"))
+        .map(|s| s.to_string())
+        .collect();
+    for name in top {
+        if let Some(c) = read_entry(archive, &name) {
+            out.push(c);
+        }
+    }
+
+    // Lang dei JarJar annidati.
+    let nested: Vec<String> = archive
+        .file_names()
+        .filter(|n| n.starts_with("META-INF/jarjar/") && n.ends_with(".jar"))
+        .map(|s| s.to_string())
+        .collect();
+    for name in nested {
+        let mut buf = Vec::new();
+        match archive.by_name(&name) {
+            Ok(mut entry) => {
+                if entry.read_to_end(&mut buf).is_err() {
+                    continue;
+                }
+            }
+            Err(_) => continue,
+        }
+        if let Ok(mut inner) = ZipArchive::new(Cursor::new(buf)) {
+            let inner_langs: Vec<String> = inner
+                .file_names()
+                .filter(|n| n.starts_with("assets/") && n.ends_with("/lang/en_us.json"))
+                .map(|s| s.to_string())
+                .collect();
+            for name in inner_langs {
+                if let Some(c) = read_entry(&mut inner, &name) {
+                    out.push(c);
+                }
+            }
+        }
+    }
+
+    out
+}
+
+/// Estrae le keybind (chiave + label) dai lang del jar, inclusi i JarJar
+/// annidati (vedi `collect_lang_contents`). Dedup per chiave, ordinate per label.
+fn collect_keybinds<R: Read + Seek>(archive: &mut ZipArchive<R>) -> Vec<KeybindAction> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut keybinds: Vec<KeybindAction> = Vec::new();
+    for content in collect_lang_contents(archive) {
+        let json: JsonValue = match serde_json::from_str(&content) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let obj = match json.as_object() {
+            Some(o) => o,
+            None => continue,
+        };
+        for (k, v) in obj {
+            if !is_keybind_key(k) {
+                continue;
+            }
+            if !seen.insert(k.clone()) {
+                continue; // dedup per chiave (namespace/lang multipli)
+            }
+            let label = v
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(k)
+                .to_string();
+            keybinds.push(KeybindAction {
+                key: k.clone(),
+                label,
+            });
+        }
+    }
+
+    keybinds.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
+    keybinds
 }
 
 /// modId principale del jar, riusando la stessa cascata di detection loader di
@@ -544,102 +664,85 @@ fn read_mod_id<R: Read + Seek>(archive: &mut ZipArchive<R>) -> String {
     ids.into_iter().next().unwrap_or_default()
 }
 
-/// Apre un jar ed estrae le keybind dai file `assets/*/lang/en_us.json`.
-/// I jar annidati (JarJar) non sono coperti (estensione futura).
-fn read_keybinds(path: &Path) -> ModKeybinds {
-    let filename = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("")
-        .to_string();
+// --- Risoluzione mirata di label/mod per chiavi di traduzione note ---
+//
+// A differenza di `scan_keybinds` (che deve INDOVINARE quali chiavi lang sono
+// keybind), qui riceviamo le chiavi ESATTE (es. gli actionKey di un
+// keybindprofiles.json importato) e le cerchiamo per match esatto nei lang di
+// ogni jar. Così risolviamo anche le keybind con nomi senza marcatore
+// (`config.jsg.*`, `placebo.toggle*`) senza rischio di falsi positivi.
 
-    let empty = |filename: &str| ModKeybinds {
-        filename: filename.to_string(),
-        mod_id: String::new(),
-        keybinds: Vec::new(),
-    };
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedKeybind {
+    pub key: String,
+    pub label: String,
+    pub mod_id: String,
+}
 
-    let file = match fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return empty(&filename),
-    };
-    let mut archive = match ZipArchive::new(file) {
-        Ok(a) => a,
-        Err(_) => return empty(&filename),
-    };
+/// Comando Tauri: per ogni chiave richiesta trova (match esatto) la label dal
+/// file `en_us.json` e il modId del jar che la definisce. Le chiavi non trovate
+/// vengono semplicemente omesse.
+#[tauri::command]
+pub fn resolve_keybind_labels(
+    dir: String,
+    keys: Vec<String>,
+) -> Result<Vec<ResolvedKeybind>, String> {
+    let wanted: HashSet<String> = keys.into_iter().collect();
+    if wanted.is_empty() {
+        return Ok(Vec::new());
+    }
 
-    let mod_id = read_mod_id(&mut archive);
+    let entries = fs::read_dir(&dir).map_err(|e| e.to_string())?;
+    // key -> (label, modId). Il primo jar che definisce la chiave vince.
+    let mut resolved: std::collections::HashMap<String, (String, String)> =
+        std::collections::HashMap::new();
 
-    // Raccogliere i nomi delle lang PRIMA di leggerle: `file_names()` borrowa
-    // l'archivio, che va poi mutato da `by_name` (stesso vincolo dei JarJar).
-    let lang_files: Vec<String> = archive
-        .file_names()
-        .filter(|n| n.starts_with("assets/") && n.ends_with("/lang/en_us.json"))
-        .map(|s| s.to_string())
-        .collect();
+    let jars = entries.flatten().map(|e| e.path()).filter(|p| {
+        p.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("jar"))
+            .unwrap_or(false)
+    });
 
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut keybinds: Vec<KeybindAction> = Vec::new();
-    for name in lang_files {
-        let content = match read_entry(&mut archive, &name) {
-            Some(c) => c,
-            None => continue,
-        };
-        let json: JsonValue = match serde_json::from_str(&content) {
-            Ok(v) => v,
+    for path in jars {
+        let file = match fs::File::open(&path) {
+            Ok(f) => f,
             Err(_) => continue,
         };
-        let obj = match json.as_object() {
-            Some(o) => o,
-            None => continue,
+        let mut archive = match ZipArchive::new(file) {
+            Ok(a) => a,
+            Err(_) => continue,
         };
-        for (k, v) in obj {
-            if !k.starts_with("key.") || k.starts_with("key.categories.") {
-                continue;
+        let mod_id = read_mod_id(&mut archive);
+
+        // Legge i lang top-level + quelli dei JarJar annidati (es. Ponder dentro
+        // Create), così risolve anche le keybind bundlate.
+        for content in collect_lang_contents(&mut archive) {
+            let json: JsonValue = match serde_json::from_str(&content) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let obj = match json.as_object() {
+                Some(o) => o,
+                None => continue,
+            };
+            for (k, v) in obj {
+                if !wanted.contains(k) || resolved.contains_key(k) {
+                    continue;
+                }
+                let label = v
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(k)
+                    .to_string();
+                resolved.insert(k.clone(), (label, mod_id.clone()));
             }
-            if !seen.insert(k.clone()) {
-                continue; // dedup per chiave (namespace/lang multipli)
-            }
-            let label = v
-                .as_str()
-                .filter(|s| !s.is_empty())
-                .unwrap_or(k)
-                .to_string();
-            keybinds.push(KeybindAction {
-                key: k.clone(),
-                label,
-            });
         }
     }
 
-    keybinds.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
-    ModKeybinds {
-        filename,
-        mod_id,
-        keybinds,
-    }
-}
-
-/// Comando Tauri: scansiona i .jar di una directory restituendo, per ogni mod
-/// che ne definisce, le keybind (chiave di traduzione + label). Le mod senza
-/// keybind vengono omesse dal risultato.
-#[tauri::command]
-pub fn scan_keybinds(dir: String) -> Result<Vec<ModKeybinds>, String> {
-    let entries = fs::read_dir(&dir).map_err(|e| e.to_string())?;
-
-    let mut mods: Vec<ModKeybinds> = entries
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            p.extension()
-                .and_then(|e| e.to_str())
-                .map(|e| e.eq_ignore_ascii_case("jar"))
-                .unwrap_or(false)
-        })
-        .map(|p| read_keybinds(&p))
-        .filter(|m| !m.keybinds.is_empty())
-        .collect();
-
-    mods.sort_by(|a, b| a.filename.to_lowercase().cmp(&b.filename.to_lowercase()));
-    Ok(mods)
+    Ok(resolved
+        .into_iter()
+        .map(|(key, (label, mod_id))| ResolvedKeybind { key, label, mod_id })
+        .collect())
 }

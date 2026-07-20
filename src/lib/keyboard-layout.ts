@@ -97,10 +97,19 @@ export const MOUSE_KEYS: KeyDef[] = [
     k("mouse5", "BT5"),
 ]
 
-// Tutti gli id assegnabili (utile per validazioni/ricerche).
-export const ALL_KEY_IDS: string[] = [
-    ...MAIN_ROWS.flat().filter((i): i is KeyDef => !isSpacer(i)).map((key) => key.id),
-    ...NUMPAD_ROWS.flat().filter((i): i is KeyDef => !isSpacer(i)).map((key) => key.id),
-    ...NUMPAD_SIDE.map((key) => key.id),
-    ...MOUSE_KEYS.map((key) => key.id),
+// Tutti i tasti (KeyDef) del layout, in ordine di riga: utile per costruire un
+// selettore (es. il tasto base di una macro).
+export const ALL_KEYS: KeyDef[] = [
+    ...MAIN_ROWS.flat().filter((i): i is KeyDef => !isSpacer(i)),
+    ...NUMPAD_ROWS.flat().filter((i): i is KeyDef => !isSpacer(i)),
+    ...NUMPAD_SIDE,
+    ...MOUSE_KEYS,
 ]
+
+// Tutti gli id assegnabili (utile per validazioni/ricerche).
+export const ALL_KEY_IDS: string[] = ALL_KEYS.map((key) => key.id)
+
+// Etichetta leggibile di un id di tasto (fallback: l'id stesso).
+export function keyLabel(id: string): string {
+    return ALL_KEYS.find((key) => key.id === id)?.label ?? id
+}

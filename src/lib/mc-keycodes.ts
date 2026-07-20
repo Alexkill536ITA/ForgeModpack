@@ -84,3 +84,35 @@ export function toMinecraftInput(keyId: string): string {
   if (/^num[0-9]$/.test(keyId)) return `key.keyboard.keypad.${keyId.slice(3)}`
   return UNMAPPED
 }
+
+// Mappa inversa dei casi irregolari (input code Minecraft -> id del layout). In
+// caso di più id per lo stesso code (es. enter1/enter2 -> key.keyboard.enter)
+// vince il PRIMO inserito (l'ordine di SPECIAL), cioè quello "principale".
+const REVERSE_SPECIAL: Record<string, string> = (() => {
+  const rev: Record<string, string> = {}
+  for (const [id, code] of Object.entries(SPECIAL)) {
+    if (!(code in rev)) rev[code] = id
+  }
+  return rev
+})()
+
+/**
+ * Inversa di `toMinecraftInput`: dato un input code Minecraft (es.
+ * "key.keyboard.w", "key.mouse.left") ritorna l'id del tasto del layout, o
+ * `null` se il tasto è non assegnato/non riconosciuto (`key.keyboard.unknown` o
+ * code fuori dal set gestito). Usata dall'import dei config nel layout.
+ */
+export function fromMinecraftInput(code: string): string | null {
+  if (!code || code === UNMAPPED) return null
+  if (code in REVERSE_SPECIAL) return REVERSE_SPECIAL[code]
+  let m: RegExpExecArray | null
+  // Lettere a-z
+  if ((m = /^key\.keyboard\.([a-z])$/.exec(code))) return m[1]
+  // Cifre riga numerica: key.keyboard.0..9 -> digit0..9
+  if ((m = /^key\.keyboard\.([0-9])$/.exec(code))) return `digit${m[1]}`
+  // Funzione: key.keyboard.f1..f12 -> f1..f12
+  if ((m = /^key\.keyboard\.(f(?:[1-9]|1[0-2]))$/.exec(code))) return m[1]
+  // Tastierino numerico: key.keyboard.keypad.0..9 -> num0..9
+  if ((m = /^key\.keyboard\.keypad\.([0-9])$/.exec(code))) return `num${m[1]}`
+  return null
+}

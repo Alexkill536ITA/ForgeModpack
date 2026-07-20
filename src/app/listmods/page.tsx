@@ -1,8 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { invoke } from "@tauri-apps/api/core"
-import { join } from "@tauri-apps/api/path"
 import { RefreshCcwIcon, PackageIcon, CircleCheckIcon, CircleSlashIcon, CircleXIcon, SearchIcon } from "lucide-react"
 
 import { ProjectGate } from "../../components/project-gate"
@@ -28,20 +26,8 @@ import { cn } from "../../lib/utils"
 import { useAppDispatch } from "../../redux/hooks"
 import { updateProject } from "../../redux/project-slice"
 import { setByPath } from "../../lib/json-data"
+import { getModsScanCached } from "../../lib/mods-scan"
 import { mod, modloaderTypes, project } from "../../model/models"
-
-// Rispecchia la struct `ScannedMod` ritornata dal comando Rust `scan_mods`.
-interface ScannedMod {
-  filename: string
-  modId: string
-  name: string
-  modloader: string
-  version: string
-  description: string | null
-  authors: string[]
-  dependencies: { name: string; version: string; mandatory: boolean }[]
-  provides: string[]
-}
 
 // modId "ambiente" forniti dal loader/runtime: sempre soddisfatti, non sono mod.
 const RUNTIME_DEPS = new Set([
@@ -158,18 +144,20 @@ function ModsList({ project }: { project: project }) {
   const projectRef = useRef(project)
   projectRef.current = project
 
-  // Apre ogni .jar di <workpath>/mods come ZIP (lato Rust), ne legge i metadati
-  // e li salva in project.mods, preservando il flag `active` già impostato.
-  const scan = useCallback(async () => {
+  // Scansione UNIFICATA (metadati + keybind) via cache SQLite `mods:<workpath>`:
+  // salva i metadati in project.mods (preservando `active`); i keybind restano
+  // nella cache e alimentano la pagina Keybinds. `force` = refresh manuale.
+  const scan = useCallback(async (force = false) => {
     setLoading(true)
     setError(null)
     try {
-      const modsDir = await join(workpath, "mods")
-      const scanned = await invoke<ScannedMod[]>("scan_mods", { dir: modsDir })
+      const scanned = await getModsScanCached(workpath, force)
 
       const current = projectRef.current
       const prevActive = new Map(current.mods.map((m) => [m.filename, m.active]))
 
+      // I keybind NON vengono copiati in project.mods (restano nella cache): il
+      // project.json resta leggero.
       const mapped: mod[] = scanned.map((s) => ({
         active: prevActive.get(s.filename) ?? true,
         filename: s.filename,
@@ -274,7 +262,7 @@ function ModsList({ project }: { project: project }) {
               </span>
             )}
           </CardTitle>
-          <Button variant="ghost" size="icon" onClick={() => void scan()} disabled={loading} aria-label="Refresh">
+          <Button variant="ghost" size="icon" onClick={() => void scan(true)} disabled={loading} aria-label="Refresh">
             <RefreshCcwIcon className={cn(loading && "ease-in-out animate-spin")} />
           </Button>
         </CardHeader>

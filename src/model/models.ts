@@ -87,11 +87,27 @@ export type keybindTag = {
     name: string
 };
 
+// Modificatore di una macro: un solo modificatore per combinazione (standard
+// supportato dai mod, es. Keyset). Mappato su left/right in export.
+export type macroModifier = "ctrl" | "shift" | "alt";
+
+// Macro: combinazione modificatore + tasto base legata a un'azione (es. Ctrl+A).
+// È come un keybind ma con un modificatore; vive nella keybindMap, separata dai
+// keybind normali. `key`/`action`/`actionKey`/`category` come in `keybind`.
+export type macro = {
+    modifier: macroModifier, // modificatore della combinazione
+    key: string,             // id del tasto base (vedi keyboard-layout.ts)
+    action: string,          // descrizione leggibile dell'azione (label)
+    actionKey?: string,      // chiave di traduzione Minecraft (per l'export); opzionale
+    category: string,        // nome della categoria (riferimento a keybindCategory.name)
+};
+
 // Una mappa di keybind (es. "Tech & Armi", "Magia"): il progetto può averne più
 // di una, ciascuna con il proprio set di binding.
 export type keybindMap = {
     name: string,
-    keybinds: keybind[]
+    keybinds: keybind[],
+    macros?: macro[] // combinazioni modificatore + tasto; opzionale = retrocompatibile
 };
 
 export const toastStyles = {

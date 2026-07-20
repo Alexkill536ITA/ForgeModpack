@@ -1,11 +1,21 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { KeyboardIcon, MouseIcon, PlusIcon, Trash2Icon, MapIcon, XIcon, PencilIcon, SearchIcon, BoxesIcon, TagsIcon, DownloadIcon, RefreshCcwIcon } from "lucide-react"
+import { KeyboardIcon, MouseIcon, PlusIcon, Trash2Icon, MapIcon, XIcon, PencilIcon, SearchIcon, BoxesIcon, TagsIcon, DownloadIcon, UploadIcon, RefreshCcwIcon, ZapIcon } from "lucide-react"
 
 import { ProjectGate } from "../../components/project-gate"
 import { ExportDialog } from "../../components/keybinds/export-dialog"
+import { ImportDialog } from "../../components/keybinds/import-dialog"
+import { ImportReport, ImportIssueReason } from "../../lib/keybind-import"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../../components/ui/table"
 import { Button } from "../../components/ui/button"
 import { Input } from "../../components/ui/input"
 import { Label } from "../../components/ui/label"
@@ -47,14 +57,16 @@ import {
   setKeybindActionsError,
   setKeybindActionsLoading,
 } from "../../redux/keybind-actions-slice"
-import { getKeybindActionsCached, peekKeybindActionsCache } from "../../lib/keybind-cache"
+import { getModsScanCached, peekModsScanCache, scannedMod, scannedKeybind } from "../../lib/mods-scan"
 import { cn } from "../../lib/utils"
-import { keybind, keybindCategory, keybindMap, keybindTag, mod, project } from "../../model/models"
+import { keybind, keybindCategory, keybindMap, keybindTag, macro, macroModifier, mod, project } from "../../model/models"
 import {
   MAIN_ROWS,
   NUMPAD_ROWS,
   NUMPAD_SIDE,
   MOUSE_KEYS,
+  ALL_KEYS,
+  keyLabel,
   KeyDef,
   KeyboardItem,
   isSpacer,
@@ -63,6 +75,21 @@ import { defaultKeybinds, defaultCategories, defaultTags, vanillaActions } from 
 
 const UNIT_REM = 2.5
 const GAP_REM = 0.25
+
+// Etichetta leggibile del motivo per cui un binding è stato saltato in import.
+const REASON_LABEL: Record<ImportIssueReason, string> = {
+  "not-installed": "Mod not installed",
+  unmapped: "Key not on layout",
+  overflow: "Over 4-per-key limit",
+}
+
+// Categorie NON-mod: solo queste mostrano le azioni vanilla nel dialog dei tasti
+// (i default del template + la categoria "Vanilla" creata dall'import). Ogni
+// altra category è trattata come una mod (azioni scansionate o input libero).
+const VANILLA_CATEGORY_NAMES = new Set<string>([
+  ...defaultCategories().map((c) => c.name),
+  "Vanilla",
+])
 
 const DEFAULT_PALETTE = [
   "#417505", "#8c582a", "#1a6fa8", "#0e7a5c", "#e67e00", "#8b0000",
@@ -118,6 +145,21 @@ function FilterChip({
 
 // Massimo numero di binding assegnabili a un singolo tasto.
 const MAX_BINDINGS = 4
+
+// Etichetta leggibile del modificatore di una macro.
+const MODIFIER_LABEL: Record<macroModifier, string> = { ctrl: "Ctrl", shift: "Shift", alt: "Alt" }
+
+// I tasti modificatori non hanno senso come tasto BASE di una macro: esclusi dal
+// selettore (il modificatore è scelto a parte).
+const MODIFIER_KEY_IDS = new Set([
+  "ctrlleft", "ctrlright", "shiftleft", "shiftright", "alt", "altgr", "winleft", "winright", "menu",
+])
+
+// Opzioni del tasto base di una macro (tutti i tasti tranne i modificatori),
+// con id in coda per disambiguare le label duplicate (es. "Invio", "7").
+const BASE_KEY_OPTIONS: { value: string; label: string }[] = ALL_KEYS
+  .filter((k) => !MODIFIER_KEY_IDS.has(k.id))
+  .map((k) => ({ value: k.id, label: `${k.label} (${k.id})` }))
 
 // Suddivisione del tasto in riquadri, uno per binding:
 //  1 → pieno; 2 → metà sopra / metà sotto; 3 → due quadranti in alto + fascia
@@ -239,8 +281,20 @@ function KeybindsBoard({ project }: { project: project }) {
   const [editingMapIndex, setEditingMapIndex] = useState<number | null>(null)
   const [mapName, setMapName] = useState("")
 
-  // Dialog Export config.
+  // Dialog Add/Edit Macro (editingMacroIndex = indice in current.macros, null in aggiunta).
+  const [macroOpen, setMacroOpen] = useState(false)
+  const [editingMacroIndex, setEditingMacroIndex] = useState<number | null>(null)
+  const [macroMod, setMacroMod] = useState<macroModifier>("ctrl")
+  const [macroKey, setMacroKey] = useState("")
+  const [macroCategory, setMacroCategory] = useState("")
+  const [macroAction, setMacroAction] = useState("")
+  const [macroActionKey, setMacroActionKey] = useState<string | undefined>(undefined)
+
+  // Dialog Export / Import config.
   const [exportOpen, setExportOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  // Report dell'ultimo import (per la tabella dettagliata sotto Keybinds).
+  const [importReport, setImportReport] = useState<ImportReport | null>(null)
 
   const maps = project.keybindMaps
   const categories = project.keybindCategories
@@ -256,40 +310,61 @@ function KeybindsBoard({ project }: { project: project }) {
   const categoryOf = (name: string) => categories.find((c) => c.name === name)
   const colorOf = (name: string) => categoryOf(name)?.color ?? "#888888"
 
-  // Azioni keybind estratte dai jar (runtime, non nel project). NON si scansiona
-  // al mount: si carica solo dalla cache SQLite se presente. La scansione vera
-  // (lettura dei jar) parte dalla sezione di import (dialog Add Mod, quando non
-  // c'è cache) o dal refresh manuale.
+  // Azioni keybind derivate dalla scansione UNIFICATA dei mod (cache SQLite
+  // `mods:<workpath>`). Al mount: se la cache è presente la si carica subito;
+  // se è assente si esegue la scansione (metadati + keybind in un colpo), così
+  // la pagina è utilizzabile anche senza aver prima aperto List Mods.
   const keybindActions = useAppSelector(selectKeybindActions)
   const workpath = project.configs.workpath
   const [scanning, setScanning] = useState(false)
+  // Scansione UNIFICATA caricata nella pagina: è l'UNICA fonte per risolvere una
+  // category alla mod + alle sue keybind (indipendente da project.mods, che può
+  // essere non aggiornato). byModId dello slice resta per compatibilità.
+  const [scanMods, setScanMods] = useState<scannedMod[]>([])
+
+  // Deriva le keybind per-mod (per lo slice Redux, usato altrove).
+  const toActions = (mods: scannedMod[]) =>
+    mods
+      .filter((m) => m.modId && m.keybinds.length > 0)
+      .map((m) => ({ filename: m.filename, modId: m.modId, keybinds: m.keybinds }))
 
   const bootstrapped = useRef<string | null>(null)
   useEffect(() => {
     if (bootstrapped.current === workpath) return
     bootstrapped.current = workpath
-    if (keybindActions.workpath === workpath) return
     let cancelled = false
     ;(async () => {
       try {
-        const cached = await peekKeybindActionsCache(workpath)
-        if (!cancelled && cached) dispatch(setKeybindActions({ workpath, mods: cached }))
+        let mods = await peekModsScanCache(workpath)
+        if (cancelled) return
+        if (!mods) {
+          // Nessuna cache: scansione unificata (una sola apertura dei jar).
+          setScanning(true)
+          mods = await getModsScanCached(workpath, false)
+        }
+        if (cancelled) return
+        setScanMods(mods)
+        dispatch(setKeybindActions({ workpath, mods: toActions(mods) }))
       } catch (err) {
         console.error(err)
+      } finally {
+        if (!cancelled) setScanning(false)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [workpath, keybindActions.workpath, dispatch])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workpath, dispatch])
 
-  // Scansiona le keybind dei jar (via cache SQLite). `force` = refresh manuale.
+  // Scansione unificata dei jar (via cache SQLite). `force` = refresh manuale.
   async function scanKeybinds(force: boolean) {
     setScanning(true)
     dispatch(setKeybindActionsLoading(true))
     try {
-      const mods = await getKeybindActionsCached(workpath, force)
-      dispatch(setKeybindActions({ workpath, mods }))
+      const mods = await getModsScanCached(workpath, force)
+      setScanMods(mods)
+      dispatch(setKeybindActions({ workpath, mods: toActions(mods) }))
     } catch (err) {
       console.error(err)
       dispatch(setKeybindActionsError(String(err)))
@@ -298,21 +373,24 @@ function KeybindsBoard({ project }: { project: project }) {
     }
   }
 
-  // Mappa nome-mod -> mod (la category dei keybind è il nome della mod).
-  const modByName = new Map(project.mods.map((m) => [m.name, m]))
-  // Azioni selezionabili per una category. Ritorna `null` quando la category è
-  // una mod reale ma senza keybind scansionate (→ la UI mostra input libero,
-  // così non si suggeriscono azioni vanilla che non le appartengono).
+  // Mappe per risolvere una category alla mod, dalla scansione unificata: la
+  // category può essere il NOME della mod (Add Mod) o il modId grezzo (import).
+  const modByName = new Map<string, scannedMod>(scanMods.map((m) => [m.name, m]))
+  const modByModId = new Map<string, scannedMod>(scanMods.map((m) => [m.modId, m]))
+  const keybindsByModId = new Map<string, scannedKeybind[]>(scanMods.map((m) => [m.modId, m.keybinds]))
+  // Azioni selezionabili per una category:
+  //  - categorie NON-mod ("Vanilla" ecc.) → azioni vanilla;
+  //  - qualsiasi altra category = MOD → keybind scansionate se disponibili,
+  //    altrimenti `null` = input libero. Mai vanilla su una mod.
   function actionsForCategory(name: string): { value: string; label: string }[] | null {
-    const m = modByName.get(name)
-    if (m) {
-      const scanned = keybindActions.byModId[m.modId]
-      return scanned && scanned.length > 0
-        ? scanned.map((a) => ({ value: a.key, label: a.label }))
-        : null
+    if (VANILLA_CATEGORY_NAMES.has(name)) {
+      return vanillaActions().map((a) => ({ value: a.actionKey, label: a.label }))
     }
-    // Categoria non-mod (es. default UI/Movimento/Inventario): azioni vanilla.
-    return vanillaActions().map((a) => ({ value: a.actionKey, label: a.label }))
+    const m = modByName.get(name) ?? modByModId.get(name)
+    const kb = keybindsByModId.get(m?.modId ?? name)
+    return kb && kb.length > 0
+      ? kb.map((a) => ({ value: a.key, label: a.label }))
+      : null
   }
 
   function commit(next: project) {
@@ -321,6 +399,11 @@ function KeybindsBoard({ project }: { project: project }) {
 
   function commitKeybinds(keybinds: keybind[]) {
     const keybindMaps = maps.map((m, i) => (i === activeMap ? { ...m, keybinds } : m))
+    commit({ ...project, keybindMaps })
+  }
+
+  function commitMacros(macros: macro[]) {
+    const keybindMaps = maps.map((m, i) => (i === activeMap ? { ...m, macros } : m))
     commit({ ...project, keybindMaps })
   }
 
@@ -422,6 +505,52 @@ function KeybindsBoard({ project }: { project: project }) {
     if (!editing || !current) return
     commitKeybinds(current.keybinds.filter((kb) => kb.key !== editing.id))
     setEditing(null)
+  }
+
+  // --- Macro (modificatore + tasto base) ---
+  function openAddMacro() {
+    setEditingMacroIndex(null)
+    setMacroMod("ctrl")
+    setMacroKey("")
+    setMacroCategory(categories[0]?.name ?? "")
+    setMacroAction("")
+    setMacroActionKey(undefined)
+    setMacroOpen(true)
+  }
+  function openEditMacro(index: number) {
+    const mc = (current?.macros ?? [])[index]
+    if (!mc) return
+    setEditingMacroIndex(index)
+    setMacroMod(mc.modifier)
+    setMacroKey(mc.key)
+    setMacroCategory(mc.category)
+    setMacroAction(mc.action)
+    setMacroActionKey(mc.actionKey)
+    setMacroOpen(true)
+  }
+  function saveMacro() {
+    if (!current) return
+    const action = macroAction.trim()
+    if (!macroKey || !action || !macroCategory) return
+    const entry: macro = {
+      modifier: macroMod,
+      key: macroKey,
+      action,
+      category: macroCategory,
+      ...(macroActionKey ? { actionKey: macroActionKey } : {}),
+    }
+    const existing = current.macros ?? []
+    const next =
+      editingMacroIndex !== null
+        ? existing.map((m, i) => (i === editingMacroIndex ? entry : m))
+        : [...existing, entry]
+    commitMacros(next)
+    setMacroOpen(false)
+  }
+  function removeMacro() {
+    if (!current || editingMacroIndex === null) return
+    commitMacros((current.macros ?? []).filter((_, i) => i !== editingMacroIndex))
+    setMacroOpen(false)
   }
 
   // --- Mod (categoria) ---
@@ -565,6 +694,11 @@ function KeybindsBoard({ project }: { project: project }) {
     )
   }
 
+  // Azioni selezionabili per la macro in modifica (in base alla mod scelta) e
+  // l'azione attualmente selezionata (per il Combobox controllato).
+  const macroActions = actionsForCategory(macroCategory)
+  const macroSelectedAction = macroActions?.find((a) => a.value === macroActionKey) ?? null
+
   return (
     <div className="flex flex-col gap-4">
       <div className="w-full flex items-stretch gap-4">
@@ -671,6 +805,13 @@ function KeybindsBoard({ project }: { project: project }) {
               variant="outline"
               size="sm"
               className="ml-auto"
+              onClick={() => setImportOpen(true)}
+            >
+              <UploadIcon /> Import
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setExportOpen(true)}
               disabled={maps.length === 0}
             >
@@ -753,10 +894,102 @@ function KeybindsBoard({ project }: { project: project }) {
                   </div>
                 </div>
               </div>
+
+              {/* Macro: combinazioni modificatore + tasto (es. Ctrl+A) della mappa attiva */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><ZapIcon className="size-4" /> Macros</p>
+                  <Button variant="outline" size="sm" onClick={openAddMacro} disabled={categories.length === 0}>
+                    <PlusIcon /> Macro
+                  </Button>
+                </div>
+                <div className="rounded-xl border bg-muted/30 p-4">
+                  {(current.macros ?? []).length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No macros yet. Add a modifier combo like Ctrl + A.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {(current.macros ?? []).map((mc, i) => {
+                        const color = colorOf(mc.category)
+                        const dimmed = !matchesFilters(mc)
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => openEditMacro(i)}
+                            title={`${mc.action} — ${mc.category}`}
+                            style={{ background: color, color: contrastText(color) }}
+                            className={cn(
+                              "flex items-center gap-2 rounded-md border border-transparent px-3 py-1.5 text-left transition-transform hover:z-10 hover:scale-105",
+                              dimmed && "opacity-20"
+                            )}
+                          >
+                            <span className="rounded bg-black/25 px-1.5 py-0.5 font-mono text-[11px] font-semibold whitespace-nowrap">
+                              {MODIFIER_LABEL[mc.modifier]} + {keyLabel(mc.key)}
+                            </span>
+                            <span className="line-clamp-1 text-[11px] opacity-90">{mc.action}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
             </>
           )}
         </CardContent>
       </Card>
+
+      {/* Report dettagliato dell'ultimo import (sotto il blocco Keybinds). */}
+      {importReport && (
+        <Card>
+          <CardHeader className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-2xl">Import report</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {importReport.maps} map(s), {importReport.bindings} binding(s) imported
+                {importReport.issues.length > 0 && ` · ${importReport.issues.length} skipped`}
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => setImportReport(null)} aria-label="Dismiss report">
+              <XIcon />
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {importReport.issues.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No issues — all bindings were imported.
+              </p>
+            ) : (
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Map</TableHead>
+                      <TableHead>Action</TableHead>
+                      <TableHead>Key</TableHead>
+                      <TableHead>Problem</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {importReport.issues.map((iss, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="text-muted-foreground">{iss.map}</TableCell>
+                        <TableCell className="font-mono text-xs">{iss.actionKey}</TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {iss.keyCode ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-destructive">{REASON_LABEL[iss.reason]}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Dialog binding — non-modal + niente chiusura su interazione esterna,
           così il popup (portalato) del Combobox azioni resta cliccabile. */}
@@ -785,7 +1018,10 @@ function KeybindsBoard({ project }: { project: project }) {
                     <span className="size-3 shrink-0 rounded-full" style={{ background: color }} />
                     {actions ? (
                       <div className="min-w-0 flex-1">
+                        {/* key per category: rimonta il Combobox quando cambi mod,
+                            così non resta filtrato con il testo digitato prima. */}
                         <Combobox
+                          key={b.category}
                           items={actions}
                           value={selected}
                           onValueChange={(v: { value: string; label: string } | null) =>
@@ -972,6 +1208,128 @@ function KeybindsBoard({ project }: { project: project }) {
         </DialogContent>
       </Dialog>
 
+      {/* Dialog Add/Edit Macro — non-modal + niente chiusura su interazione
+          esterna, così i popup portalati dei Combobox restano cliccabili. */}
+      <Dialog open={macroOpen} onOpenChange={(open) => !open && setMacroOpen(false)} modal={false}>
+        <DialogContent
+          onInteractOutside={(e) => e.preventDefault()}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>{editingMacroIndex !== null ? "Edit macro" : "Add macro"}</DialogTitle>
+          </DialogHeader>
+          {categories.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No mods yet. Add a mod first.</p>
+          ) : (
+            <div className="space-y-4">
+              {/* Combinazione: modificatore + tasto base */}
+              <div className="space-y-2">
+                <Label>Combination</Label>
+                <div className="flex items-center gap-2">
+                  <Select value={macroMod} onValueChange={(v) => setMacroMod(v as macroModifier)}>
+                    <SelectTrigger className="h-8 w-28 shrink-0">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ctrl">Ctrl</SelectItem>
+                      <SelectItem value="shift">Shift</SelectItem>
+                      <SelectItem value="alt">Alt</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="text-muted-foreground">+</span>
+                  <div className="min-w-0 flex-1">
+                    <Combobox
+                      items={BASE_KEY_OPTIONS}
+                      value={BASE_KEY_OPTIONS.find((o) => o.value === macroKey) ?? null}
+                      onValueChange={(v: { value: string; label: string } | null) => setMacroKey(v?.value ?? "")}
+                      isItemEqualToValue={(a, c) => a?.value === c?.value}
+                    >
+                      <ComboboxInput placeholder="Select key" />
+                      <ComboboxContent>
+                        <ComboboxEmpty>No keys found.</ComboboxEmpty>
+                        <ComboboxList>
+                          {(item: { value: string; label: string }) => (
+                            <ComboboxItem key={item.value} value={item}>{item.label}</ComboboxItem>
+                          )}
+                        </ComboboxList>
+                      </ComboboxContent>
+                    </Combobox>
+                  </div>
+                </div>
+              </div>
+              {/* Mod (categoria) */}
+              <div className="space-y-2">
+                <Label>Mod</Label>
+                <Select
+                  value={macroCategory}
+                  onValueChange={(v) => {
+                    setMacroCategory(v)
+                    setMacroAction("")
+                    setMacroActionKey(undefined)
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Mod" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map((c) => (
+                      <SelectItem key={c.name} value={c.name}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {/* Azione */}
+              <div className="space-y-2">
+                <Label>Action</Label>
+                {macroActions ? (
+                  <Combobox
+                    key={macroCategory}
+                    items={macroActions}
+                    value={macroSelectedAction}
+                    onValueChange={(v: { value: string; label: string } | null) => {
+                      setMacroActionKey(v?.value)
+                      setMacroAction(v?.label ?? "")
+                    }}
+                    isItemEqualToValue={(a, c) => a?.value === c?.value}
+                  >
+                    <ComboboxInput placeholder="Select action" />
+                    <ComboboxContent>
+                      <ComboboxEmpty>No actions found.</ComboboxEmpty>
+                      <ComboboxList>
+                        {(item: { value: string; label: string }) => (
+                          <ComboboxItem key={item.value} value={item}>{item.label}</ComboboxItem>
+                        )}
+                      </ComboboxList>
+                    </ComboboxContent>
+                  </Combobox>
+                ) : (
+                  <Input
+                    placeholder="e.g. Quick craft"
+                    value={macroAction}
+                    onChange={(e) => {
+                      setMacroAction(e.target.value)
+                      setMacroActionKey(undefined)
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter className="sm:justify-between">
+            {editingMacroIndex !== null ? (
+              <Button type="button" variant="ghost" className="text-destructive" onClick={removeMacro}><Trash2Icon /> Remove</Button>
+            ) : <span />}
+            <Button
+              type="button"
+              onClick={saveMacro}
+              disabled={categories.length === 0 || !macroKey || !macroAction.trim() || !macroCategory}
+            >
+              {editingMacroIndex !== null ? "Save" : "Add"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Dialog Export config — remount ad ogni apertura per riallineare i default
           (mappa attiva) via key. */}
       {exportOpen && (
@@ -981,6 +1339,17 @@ function KeybindsBoard({ project }: { project: project }) {
           open={exportOpen}
           onOpenChange={setExportOpen}
           defaultMapIndex={activeMap}
+        />
+      )}
+
+      {/* Dialog Import config — legge config/keybindprofiles.json e ricostruisce
+          le mappe, ricollegando ogni binding alla mod/azione. */}
+      {importOpen && (
+        <ImportDialog
+          project={project}
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          onImported={setImportReport}
         />
       )}
     </div>
