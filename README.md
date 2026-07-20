@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="src-tauri/icons/icon.png" alt="Logo ForgeModpack" width="512" height="512" />
+<img src="src-tauri/icons/icon.png" alt="ForgeModpack logo" width="512" height="512" />
 
 # ForgeModpack
 
-**Gestore e editor di configurazione per modpack Minecraft — desktop, offline-first.**
+**Manager and configuration editor for Minecraft modpacks — desktop, offline-first.**
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](package.json)
 [![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB.svg?logo=tauri)](https://tauri.app)
@@ -12,172 +12,172 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg?logo=typescript)](https://www.typescriptlang.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**🌐 Lingua:** **Italiano** · [English](README.en.md)
+**🌐 Language:** **English** · [Italiano](README.it.md)
 
 </div>
 
 ---
 
-## Cos'è
+## What it is
 
-**ForgeModpack** è un'app **desktop** che aiuta a **gestire le dipendenze e le
-configurazioni di un modpack Minecraft esistente**. Indichi la cartella del modpack:
-l'app legge da disco i mod e le config presenti e — **solo se serve** — recupera online
-i metadati delle versioni (Minecraft e modloader). Il tutto vive in un file di progetto
-`<nome>.json` salvato nella cartella di lavoro (`workpath`).
+**ForgeModpack** is a **desktop** app that helps you **manage the dependencies and
+configuration of an existing Minecraft modpack**. You point it at the modpack folder:
+the app reads the mods and configs from disk and — **only when needed** — fetches version
+metadata online (Minecraft and modloader). Everything lives in a project file
+`<name>.json` saved in the working folder (`workpath`).
 
 > [!IMPORTANT]
-> **Cosa NON è.** ForgeModpack **non è un launcher**: non scarica i mod e non avvia
-> Minecraft. È un **manager/editor di configurazione**, pensato per verificare
-> dipendenze, organizzare keybind e modificare i file di config del tuo modpack.
+> **What it is NOT.** ForgeModpack **is not a launcher**: it does not download mods and it
+> does not launch Minecraft. It is a **configuration manager/editor**, designed to verify
+> dependencies, organize keybinds and edit your modpack's config files.
 
 <div align="center">
 
-<!-- TODO: sostituire con screenshot/GIF reali -->
-![Screenshot dell'applicazione](docs/screenshot.png)
+<!-- TODO: replace with real screenshots/GIFs -->
+![Application screenshot](docs/screenshot.png)
 
-*Dashboard di ForgeModpack — placeholder, sostituire con uno screenshot reale.*
+*ForgeModpack dashboard — placeholder, replace with a real screenshot.*
 
 </div>
 
-## Funzionalità principali
+## Key features
 
-- 🗂️ **Dashboard** — crea/apri/salva un progetto, gestisci i metadata, scegli modloader
-  (**Forge · NeoForge · Fabric · Quilt · Datapack**, con modalità **ibrida**) e le versioni
-  MC/loader filtrate dai manifest remoti.
-- ⚡ **Cache manifest (SQLite)** — le versioni sono cachate localmente (TTL 24h) con
-  refresh manuale: avvii rapidi e piena operatività **offline**.
-- 🧩 **List Mods** — scansiona i `.jar` (backend Rust) ed estrae i metadati dai vari
-  formati di loader; tabella con nome, versione, loader, autori, stato attivo e **verifica
-  delle dipendenze mancanti** (incluse quelle bundlate via JarJar).
-- 📦 **Datapack** — gestisci i datapack (`.zip`/cartelle con `pack.mcmeta`), da soli o in
-  combinazione ibrida con un loader classico.
-- ⌨️ **Keybinds** — editor **grafico di tastiera** (layout ISO/IT + numpad + mouse), mappe
-  multiple, classificazione per **Mod** e per **Tag**, fino a 4 binding per tasto e azioni
-  reali ricavate dai file lingua dei mod.
-- 🔁 **Import/Export keybind** — importa profili di keybind e risolvi le azioni sui mod
-  installati; **esporta** verso `options.txt` di Minecraft con merge conservativo.
-- 🎛️ **JVM** — gestione degli argomenti della JVM.
-- 📝 **Documents** — file explorer di `config`/`kubejs` nella sidebar + **editor di codice
-  Monaco** (offline) con dirty-state proprio, separato dal progetto.
-- 📊 **Analytics** — riepiloghi e statistiche del modpack.
+- 🗂️ **Dashboard** — create/open/save a project, manage metadata, choose the modloader
+  (**Forge · NeoForge · Fabric · Quilt · Datapack**, with **hybrid** mode) and the MC/loader
+  versions filtered from remote manifests.
+- ⚡ **Manifest cache (SQLite)** — versions are cached locally (24h TTL) with manual
+  refresh: fast startups and full **offline** operation.
+- 🧩 **List Mods** — scans the `.jar` files (Rust backend) and extracts metadata from the
+  various loader formats; table with name, version, loader, authors, active state and
+  **missing dependency checks** (including those bundled via JarJar).
+- 📦 **Datapack** — manage datapacks (`.zip`/folders with `pack.mcmeta`), on their own or in
+  a hybrid combination with a classic loader.
+- ⌨️ **Keybinds** — graphical **keyboard editor** (ISO/IT layout + numpad + mouse), multiple
+  maps, classification by **Mod** and by **Tag**, up to 4 bindings per key and real actions
+  extracted from the mods' language files.
+- 🔁 **Keybind import/export** — import keybind profiles and resolve the actions against the
+  installed mods; **export** to Minecraft's `options.txt` with conservative merge.
+- 🎛️ **JVM** — manage JVM arguments.
+- 📝 **Documents** — file explorer for `config`/`kubejs` in the sidebar + **Monaco code
+  editor** (offline) with its own dirty state, separate from the project.
+- 📊 **Analytics** — modpack summaries and statistics.
 
-## Stack tecnologico
+## Tech stack
 
-| Ambito | Tecnologie |
+| Area | Technologies |
 | --- | --- |
-| Shell desktop | **Tauri 2** (backend **Rust**, edition 2021) |
-| Frontend | **Next.js 16** (App Router, `output: "export"` / SSG puro), **React 19**, **TypeScript strict** |
+| Desktop shell | **Tauri 2** (**Rust** backend, edition 2021) |
+| Frontend | **Next.js 16** (App Router, `output: "export"` / pure SSG), **React 19**, **TypeScript strict** |
 | State | **Redux Toolkit** + React-Redux |
 | UI | **shadcn/ui**, **Radix UI**, **Tailwind CSS v4**, `lucide-react`, `sonner` |
-| Editor | **Monaco** (`@monaco-editor/react`, servito offline da `public/monaco`) |
-| Persistenza | file di progetto JSON + cache **SQLite** (`tauri-plugin-sql`) |
+| Editor | **Monaco** (`@monaco-editor/react`, served offline from `public/monaco`) |
+| Persistence | JSON project file + **SQLite** cache (`tauri-plugin-sql`) |
 | Tooling | **pnpm**, `@tauri-apps/cli` |
 
-## Requisiti
+## Requirements
 
-- **Windows / macOS / Linux** (l'app è distribuita via Tauri; bundle NSIS su Windows).
-- Un modpack Minecraft esistente su disco da gestire.
+- **Windows / macOS / Linux** (the app is distributed via Tauri; NSIS bundle on Windows).
+- An existing Minecraft modpack on disk to manage.
 
-## Installazione (utente finale)
+## Installation (end user)
 
-<!-- TODO: aggiungere il link ai binari una volta pubblicata la release -->
-Scarica l'ultima versione dalla pagina **[Releases](https://github.com/<owner>/<repo>/releases)**
-e installa l'eseguibile per il tuo sistema operativo. Al primo avvio, crea o apri un
-progetto puntando alla cartella del tuo modpack.
+<!-- TODO: add the binaries link once the release is published -->
+Download the latest version from the **[Releases](https://github.com/<owner>/<repo>/releases)**
+page and install the executable for your operating system. On first launch, create or open a
+project by pointing it at your modpack folder.
 
-## Sviluppo
+## Development
 
-### Prerequisiti
+### Prerequisites
 
-- [Node.js](https://nodejs.org) (LTS) + **[pnpm](https://pnpm.io)** (non usare npm/yarn)
-- Toolchain **[Rust](https://www.rust-lang.org/tools/install)** (per Tauri)
-- Le [dipendenze di sistema di Tauri](https://tauri.app/start/prerequisites/) per la tua piattaforma
+- [Node.js](https://nodejs.org) (LTS) + **[pnpm](https://pnpm.io)** (do not use npm/yarn)
+- **[Rust](https://www.rust-lang.org/tools/install)** toolchain (for Tauri)
+- The [Tauri system dependencies](https://tauri.app/start/prerequisites/) for your platform
 
 ### Setup
 
 ```bash
 pnpm install
-pnpm tauri:dev     # avvia l'app desktop in sviluppo (lancia anche il dev server Next)
+pnpm tauri:dev     # start the desktop app in development (also launches the Next dev server)
 ```
 
 > [!NOTE]
-> Le API `@tauri-apps/plugin-*` (fs, dialog, http, sql) **funzionano solo dentro l'app
-> Tauri**. Con il solo `pnpm dev` (web su http://localhost:3000) queste feature non sono
-> disponibili: per testare le funzionalità reali usa `pnpm tauri:dev`.
+> The `@tauri-apps/plugin-*` APIs (fs, dialog, http, sql) **only work inside the Tauri
+> app**. With `pnpm dev` alone (web on http://localhost:3000) these features are not
+> available: use `pnpm tauri:dev` to test the real functionality.
 
-### Comandi
+### Commands
 
 ```bash
 pnpm dev          # Next dev server (web, http://localhost:3000)
-pnpm tauri:dev    # App desktop in dev
-pnpm build        # Export statico Next -> ./out (consumato da Tauri)
-pnpm tauri:build  # Build dell'eseguibile desktop (richiede il bump, vedi Versioning)
-pnpm bump         # Bump interattivo della versione (patch/minor/major) + commit + tag
+pnpm tauri:dev    # Desktop app in dev
+pnpm build        # Static Next export -> ./out (consumed by Tauri)
+pnpm tauri:build  # Build the desktop executable (requires a version bump, see Versioning)
+pnpm bump         # Interactive version bump (patch/minor/major) + commit + tag
 pnpm lint         # Lint
 ```
 
-## Struttura del progetto
+## Project structure
 
 ```
 ForgeModpack_V2/
 ├─ src/
-│  ├─ app/            # Pagine Next.js (App Router): /, /listmods, /keybinds,
+│  ├─ app/            # Next.js pages (App Router): /, /listmods, /keybinds,
 │  │                  #   /jvm, /documents, /analytics
-│  ├─ components/     # Componenti React (UI shadcn in components/ui)
-│  ├─ redux/          # Store e slice (project, manifest, documents, keybind...)
-│  ├─ lib/            # Helper: manifest, cache, scansioni, keybind-export, i18n utils
-│  ├─ model/          # Tipi del modello dati (project, mod, keybind, manifest)
-│  └─ i18n/           # Sistema i18n custom + dizionari it/en
+│  ├─ components/     # React components (shadcn UI in components/ui)
+│  ├─ redux/          # Store and slices (project, manifest, documents, keybind...)
+│  ├─ lib/            # Helpers: manifest, cache, scans, keybind-export, i18n utils
+│  ├─ model/          # Data model types (project, mod, keybind, manifest)
+│  └─ i18n/           # Custom i18n system + it/en dictionaries
 ├─ src-tauri/
-│  └─ src/            # Backend Rust: lib.rs, mods.rs (scansioni), files.rs (file tree)
-├─ docs/              # Documentazione IT/EN (tecnica + guida d'uso)
+│  └─ src/            # Rust backend: lib.rs, mods.rs (scans), files.rs (file tree)
+├─ docs/              # IT/EN documentation (technical + usage guide)
 ├─ scripts/           # bump-version, check-version, copy-monaco, generate-icons
-└─ public/            # Asset statici (icone loader, Monaco)
+└─ public/            # Static assets (loader icons, Monaco)
 ```
 
-## Documentazione
+## Documentation
 
-La documentazione completa è in [`docs/`](docs) (con diagrammi Mermaid), in **due lingue**
-e **due livelli**:
+The full documentation is in [`docs/`](docs) (with Mermaid diagrams), in **two languages**
+and **two levels**:
 
-- 🇮🇹 **Tecnica** (sviluppatori): [`docs/it/tecnica/`](docs/it/tecnica/README.md)
-- 🇮🇹 **Guida d'uso** (utenti): [`docs/it/utilizzo/`](docs/it/utilizzo/README.md)
-- 🇬🇧 **Technical**: [`docs/en/technical/`](docs/en/technical/README.md)
-- 🇬🇧 **Usage guide**: [`docs/en/usage/`](docs/en/usage/README.md)
+- 🇬🇧 **Technical** (developers): [`docs/en/technical/`](docs/en/technical/README.md)
+- 🇬🇧 **Usage guide** (users): [`docs/en/usage/`](docs/en/usage/README.md)
+- 🇮🇹 **Tecnica**: [`docs/it/tecnica/`](docs/it/tecnica/README.md)
+- 🇮🇹 **Guida d'uso**: [`docs/it/utilizzo/`](docs/it/utilizzo/README.md)
 
-Ogni cartella parte dal proprio `README.md` (indice).
+Each folder starts from its own `README.md` (index).
 
 ## Versioning & build
 
-La versione è allineata in tre file (`package.json` = fonte di verità,
-`src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` + `Cargo.lock`). `pnpm bump` li
-aggiorna in blocco e crea commit + tag `vX.Y.Z`.
+The version is kept in sync across three files (`package.json` = source of truth,
+`src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` + `Cargo.lock`). `pnpm bump` updates them
+all at once and creates a commit + `vX.Y.Z` tag.
 
 > [!WARNING]
-> La build è **bloccata** da uno script di controllo versione: `pnpm tauri:build`
-> fallisce se manca il tag `v<versione>` o se ci sono commit dopo quel tag. Esegui sempre
-> `pnpm bump` prima di produrre un nuovo eseguibile.
+> The build is **blocked** by a version-check script: `pnpm tauri:build` fails if the
+> `v<version>` tag is missing or if there are commits after that tag. Always run
+> `pnpm bump` before producing a new executable.
 
-## Contribuire
+## Contributing
 
-I contributi sono benvenuti! Prima di aprire una PR:
+Contributions are welcome! Before opening a PR:
 
-1. Segui le convenzioni del progetto (commenti e documentazione in **italiano**; UI
-   internazionalizzata via `t("namespace.key")`, mai stringhe hardcoded).
-2. Verifica type-check e lint (`pnpm lint`).
-3. Testa le feature reali con `pnpm tauri:dev`.
+1. Follow the project conventions (comments and documentation in **Italian**; UI
+   internationalized via `t("namespace.key")`, never hardcoded strings).
+2. Verify type-check and lint (`pnpm lint`).
+3. Test the real features with `pnpm tauri:dev`.
 
-Consulta la [documentazione tecnica](docs/it/tecnica/README.md) per l'architettura.
+See the [technical documentation](docs/en/technical/README.md) for the architecture.
 
-## Licenza
+## License
 
-Distribuito con licenza **MIT**. Vedi il file [`LICENSE`](LICENSE) per il testo completo.
+Distributed under the **MIT** license. See the [`LICENSE`](LICENSE) file for the full text.
 
 © 2026 Alexkill536ITA
 
 ---
 
 <div align="center">
-<sub>Creato con Tauri 2 + Next.js 16 · Autore: <code>alexkill536</code></sub>
+<sub>Built with Tauri 2 + Next.js 16 · Author: <code>alexkill536</code></sub>
 </div>
