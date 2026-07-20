@@ -12,6 +12,8 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg?logo=typescript)](https://www.typescriptlang.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
+**🌐 Lingua:** **Italiano** · [English](README.en.md)
+
 </div>
 
 ---
