@@ -81,7 +81,7 @@ metadata online (Minecraft and modloader). Everything lives in a project file
 ## Installation (end user)
 
 <!-- TODO: add the binaries link once the release is published -->
-Download the latest version from the **[Releases](https://github.com/<owner>/<repo>/releases)**
+Download the latest version from the **[Releases](https://github.com/Alexkill536ITA/ForgeModpack/releases)**
 page and install the executable for your operating system. On first launch, create or open a
 project by pointing it at your modpack folder.
 
