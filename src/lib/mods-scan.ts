@@ -19,6 +19,12 @@ import { scanHint } from "./forge-spec"
 export interface scannedKeybind {
   key: string
   label: string
+  // Come è stata riconosciuta (vedi `keybind_scan.rs`):
+  //  - "bytecode": la chiave è dichiarata da una classe che usa l'API keybind di
+  //    Forge/NeoForge (`KeyBinding`/`KeyMapping`) → keybind CERTA;
+  //  - "lang": la chiave "sembra" una keybind dal nome → probabile.
+  // Assente nelle cache scritte prima dello scan del bytecode.
+  source?: "bytecode" | "lang"
 }
 
 // Rispecchia la struct `ScannedMod` ritornata dal comando Rust `scan_mods`.
@@ -41,10 +47,12 @@ export interface scannedMod {
   warnings?: string[]
 }
 
-// La versione (`v3`) invalida le cache scritte prima del supporto ai formati
-// legacy Forge (mcmod.info / en_US.lang) e ai campi `format`/`warnings`.
+// La versione (`v4`) invalida le cache scritte prima del riconoscimento keybind
+// dal bytecode (campo `source`, chiavi non standard, meno falsi positivi) e prima
+// del fix di decodifica dei lang non-UTF8. `v3` era il supporto ai formati legacy
+// Forge (mcmod.info / en_US.lang) e ai campi `format`/`warnings`.
 function keyFor(workpath: string, hint?: scanHint): string {
-  return `mods:v3:${hint?.mc ?? ""}:${hint?.forge ?? ""}:${workpath}`
+  return `mods:v4:${hint?.mc ?? ""}:${hint?.forge ?? ""}:${workpath}`
 }
 
 /**

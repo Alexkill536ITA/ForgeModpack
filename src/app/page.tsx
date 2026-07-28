@@ -53,6 +53,7 @@ import { getMinecraftManifestCached, getModLoaderManifestCached } from "../lib/m
 import { loadManifest } from "../redux/metadata-ml-slice";
 import { updateMinecraftManifest } from "../redux/metadata-mc-slice";
 import { cn } from "../lib/utils";
+import { useBusy } from "../lib/use-busy";
 import { useTranslation } from "@/src/i18n/i18n-provider";
 
 // NeoForge esiste solo a partire da Minecraft 1.20.1: sotto questa minor il
@@ -64,6 +65,8 @@ const ASSET_TYPES = ["Resource Pack", "Shader Pack", "Data Pack", "Config", "Ico
 
 export default function Page() {
   const { t } = useTranslation()
+  // Overlay bloccante: il refresh scarica i manifest remoti e riscrive la cache.
+  const busy = useBusy()
   const [updatingManifest, setUpdatingManifest] = useState(false)
 
   // Dialog Add/Edit Asset (editingAssetIndex = indice in project.assetes, null in aggiunta).
@@ -305,10 +308,12 @@ export default function Page() {
     // poi il DB SQLite.
     setUpdatingManifest(true);
     try {
-      const [mc, modLoaders] = await Promise.all([
-        getMinecraftManifestCached(true),
-        getModLoaderManifestCached(true),
-      ]);
+      const [mc, modLoaders] = await busy(t("busy.updatingManifests"), () =>
+        Promise.all([
+          getMinecraftManifestCached(true),
+          getModLoaderManifestCached(true),
+        ])
+      );
       dispatch(updateMinecraftManifest(mc));
       dispatch(loadManifest(modLoaders));
       toast.success(t("dashboard.updateSuccess"), {

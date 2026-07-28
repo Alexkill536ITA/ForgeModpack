@@ -20,6 +20,10 @@
 //   2. decidere l'ORDINE di lettura dei lang quando un jar ne ha di piu' formati;
 //   3. produrre WARNING quando il formato trovato non corrisponde alla versione
 //      di Minecraft del progetto (diagnostica mostrata in List Mods).
+//
+// Nella seconda parte del file c'e' la tabella delle API KEYBIND per versione
+// (classi dell'SDK Forge/NeoForge cercate nel bytecode): stessa filosofia, il jar
+// resta la fonte primaria e la versione del progetto serve solo da riferimento.
 
 /// Formato dei metadati di un mod Forge.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -93,6 +97,199 @@ pub const DETECT_ONLY: ForgeSpec = ForgeSpec {
     lang: LangKind::Json,
     dep_style: None,
 };
+
+// --- API keybind per versione ---------------------------------------------
+//
+// Su Forge/NeoForge una keybind e' un oggetto costruito nel codice del mod, non un
+// dato dichiarativo: la sua chiave di traduzione e' una stringa costante nel
+// bytecode. Le classi coinvolte hanno cambiato nome e la registrazione ha cambiato
+// meccanismo diverse volte (dati dalla documentazione Forge/NeoForge):
+//
+//   MC <= 1.7.10   `net.minecraft.client.settings.KeyBinding` +
+//                  `cpw.mods.fml.client.registry.ClientRegistry.registerKeyBinding`
+//   MC 1.8 - 1.16  stessa classe + `net.minecraftforge.fml.client.registry.ClientRegistry`
+//   MC 1.17 - 1.19.2  classe rinominata `net.minecraft.client.KeyMapping`
+//                  (mappings ufficiali Mojang), registrazione ancora via ClientRegistry
+//   MC >= 1.19.3   `RegisterKeyMappingsEvent` sul mod bus
+//                  (`net.minecraftforge.client.event`, NeoForge:
+//                  `net.neoforged.neoforge.client.event`)
+//   MC >= 1.21.9   le categorie diventano `KeyMapping.Category` (record con
+//                  ResourceLocation) registrate con `registerCategory`; la loro
+//                  chiave di traduzione e' `key.category.<namespace>.<path>`
+//                  (SINGOLARE, prima era `key.categories.*`)
+//
+// Questi nomi sono cercabili nel bytecode dei jar pubblicati perche' la
+// reobfuscation SRG rinomina solo metodi e campi, non le classi (vedi
+// `class_scan.rs`). NON valgono per Fabric/Quilt, dove le classi MC sono in
+// intermediary.
+
+/// Come un mod dichiara e registra le proprie keybind, per generazione di Forge.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KeybindApi {
+    /// MC <= 1.7.10: `KeyBinding` + ClientRegistry sotto `cpw.mods.fml`.
+    FmlLegacyCpw,
+    /// MC 1.8 - 1.16.5: `KeyBinding` + ClientRegistry sotto `net.minecraftforge.fml`.
+    FmlClientRegistry,
+    /// MC 1.17 - 1.19.2: `KeyMapping` + ClientRegistry.
+    KeyMappingClientRegistry,
+    /// MC 1.19.3 - 1.21.8 (e NeoForge): `RegisterKeyMappingsEvent`.
+    RegisterEvent,
+    /// MC >= 1.21.9 / NeoForge 21.9: `RegisterKeyMappingsEvent` + `KeyMapping.Category`.
+    RegisterEventCategories,
+}
+
+/// Nome della classe che rappresenta una keybind, per generazione: il rinomino
+/// `KeyBinding` -> `KeyMapping` e' avvenuto in MC 1.17.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum KeybindEra {
+    /// `net.minecraft.client.settings.KeyBinding` (MC <= 1.16.5).
+    KeyBinding,
+    /// `net.minecraft.client.KeyMapping` (MC >= 1.17).
+    KeyMapping,
+}
+
+/// Una classe dell'SDK la cui presenza nel bytecode indica che quella classe del
+/// mod dichiara/registra keybind.
+pub struct KeybindMarker {
+    /// Nome interno della classe (`a/b/C`), come appare nel constant pool.
+    pub class: &'static str,
+    /// Generazione a cui appartiene il marker.
+    pub api: KeybindApi,
+    /// `true` se il marker identifica da solo la generazione (es. l'evento di
+    /// registrazione); `false` per le classi presenti in piu' versioni.
+    pub decisive: bool,
+}
+
+/// Tutte le classi SDK cercate nel bytecode. Si cercano SEMPRE tutte, non solo
+/// quelle del profilo: la cartella `mods` puo' contenere jar compilati per altre
+/// versioni, e in quel caso vogliamo comunque leggerne le keybind (e segnalare la
+/// discrepanza nei warning).
+pub const KEYBIND_MARKERS: &[KeybindMarker] = &[
+    // Classe keybind: identifica l'era (KeyBinding vs KeyMapping) ma non la versione esatta.
+    KeybindMarker {
+        class: "net/minecraft/client/settings/KeyBinding",
+        api: KeybindApi::FmlClientRegistry,
+        decisive: false,
+    },
+    KeybindMarker {
+        class: "net/minecraft/client/KeyMapping",
+        api: KeybindApi::RegisterEvent,
+        decisive: false,
+    },
+    // Categorie tipizzate: solo 1.21.9+ / NeoForge 21.9+.
+    KeybindMarker {
+        class: "net/minecraft/client/KeyMapping$Category",
+        api: KeybindApi::RegisterEventCategories,
+        decisive: true,
+    },
+    // Registrazione: identifica la generazione.
+    KeybindMarker {
+        class: "cpw/mods/fml/client/registry/ClientRegistry",
+        api: KeybindApi::FmlLegacyCpw,
+        decisive: true,
+    },
+    KeybindMarker {
+        class: "net/minecraftforge/fml/client/registry/ClientRegistry",
+        api: KeybindApi::FmlClientRegistry,
+        decisive: false,
+    },
+    KeybindMarker {
+        class: "net/minecraftforge/client/event/RegisterKeyMappingsEvent",
+        api: KeybindApi::RegisterEvent,
+        decisive: true,
+    },
+    KeybindMarker {
+        class: "net/neoforged/neoforge/client/event/RegisterKeyMappingsEvent",
+        api: KeybindApi::RegisterEvent,
+        decisive: true,
+    },
+    // Contesto di conflitto e modificatori: aggiunte Forge, presenti nelle classi
+    // che costruiscono keybind anche quando la costruzione e' delegata a un helper.
+    KeybindMarker {
+        class: "net/minecraftforge/client/settings/KeyModifier",
+        api: KeybindApi::FmlClientRegistry,
+        decisive: false,
+    },
+    KeybindMarker {
+        class: "net/minecraftforge/client/settings/IKeyConflictContext",
+        api: KeybindApi::FmlClientRegistry,
+        decisive: false,
+    },
+    KeybindMarker {
+        class: "net/minecraftforge/client/settings/KeyConflictContext",
+        api: KeybindApi::FmlClientRegistry,
+        decisive: false,
+    },
+    KeybindMarker {
+        class: "net/neoforged/neoforge/client/settings/KeyModifier",
+        api: KeybindApi::RegisterEvent,
+        decisive: false,
+    },
+    KeybindMarker {
+        class: "net/neoforged/neoforge/client/settings/IKeyConflictContext",
+        api: KeybindApi::RegisterEvent,
+        decisive: false,
+    },
+    KeybindMarker {
+        class: "net/neoforged/neoforge/client/settings/KeyConflictContext",
+        api: KeybindApi::RegisterEvent,
+        decisive: false,
+    },
+];
+
+/// Era della classe keybind usata da una certa generazione di API.
+pub fn keybind_era(api: KeybindApi) -> KeybindEra {
+    match api {
+        KeybindApi::FmlLegacyCpw | KeybindApi::FmlClientRegistry => KeybindEra::KeyBinding,
+        KeybindApi::KeyMappingClientRegistry
+        | KeybindApi::RegisterEvent
+        | KeybindApi::RegisterEventCategories => KeybindEra::KeyMapping,
+    }
+}
+
+/// Nome della classe keybind di un'era (per i messaggi di diagnostica).
+pub fn keybind_era_label(era: KeybindEra) -> &'static str {
+    match era {
+        KeybindEra::KeyBinding => "KeyBinding (MC <= 1.16)",
+        KeybindEra::KeyMapping => "KeyMapping (MC >= 1.17)",
+    }
+}
+
+/// API keybind attesa per la versione di Minecraft (o, in mancanza, per la major
+/// di Forge). `None` = nessun hint, nessuna aspettativa (niente warning).
+pub fn keybind_api_for(mc: Option<&str>, forge: Option<&str>) -> Option<KeybindApi> {
+    if let Some((major, minor, patch)) = mc.and_then(parse_version) {
+        // Nuovo schema di versioning di Minecraft (major != 1): sempre moderno.
+        if major != 1 {
+            return Some(KeybindApi::RegisterEventCategories);
+        }
+        if (minor, patch) < (8, 0) {
+            return Some(KeybindApi::FmlLegacyCpw);
+        }
+        if (minor, patch) < (17, 0) {
+            return Some(KeybindApi::FmlClientRegistry);
+        }
+        if (minor, patch) < (19, 3) {
+            return Some(KeybindApi::KeyMappingClientRegistry);
+        }
+        if (minor, patch) < (21, 9) {
+            return Some(KeybindApi::RegisterEvent);
+        }
+        return Some(KeybindApi::RegisterEventCategories);
+    }
+    // Fallback sulla major di Forge: 10 = 1.7.10, 11..36 = 1.8..1.16.5,
+    // 37..43 = 1.17..1.19.2, 44+ = 1.19.3 in poi (arrivo di RegisterKeyMappingsEvent).
+    let (major, _, _) = forge.and_then(parse_version)?;
+    Some(if major <= 10 {
+        KeybindApi::FmlLegacyCpw
+    } else if major <= 36 {
+        KeybindApi::FmlClientRegistry
+    } else if major <= 43 {
+        KeybindApi::KeyMappingClientRegistry
+    } else {
+        KeybindApi::RegisterEvent
+    })
+}
 
 /// Estrae `(major, minor, patch)` da una versione tipo "1.20.4", "1.12.2-pre1",
 /// "47.2.0". Ritorna `None` per le versioni non numeriche (es. snapshot "24w14a").
@@ -169,6 +366,71 @@ mod tests {
         assert_eq!(spec_for(Some("1.20.5"), None).id, FML_MODERN.id);
         assert_eq!(spec_for(Some("1.21.4"), None).id, FML_MODERN.id);
         assert_eq!(spec_for(Some("26.1"), None).id, FML_MODERN.id);
+    }
+
+    #[test]
+    fn seleziona_l_api_keybind_dalla_versione_mc() {
+        assert_eq!(
+            keybind_api_for(Some("1.7.10"), None),
+            Some(KeybindApi::FmlLegacyCpw)
+        );
+        assert_eq!(
+            keybind_api_for(Some("1.12.2"), None),
+            Some(KeybindApi::FmlClientRegistry)
+        );
+        assert_eq!(
+            keybind_api_for(Some("1.16.5"), None),
+            Some(KeybindApi::FmlClientRegistry)
+        );
+        assert_eq!(
+            keybind_api_for(Some("1.18.2"), None),
+            Some(KeybindApi::KeyMappingClientRegistry)
+        );
+        // Il passaggio a RegisterKeyMappingsEvent e' 1.19.3, non 1.19.
+        assert_eq!(
+            keybind_api_for(Some("1.19.2"), None),
+            Some(KeybindApi::KeyMappingClientRegistry)
+        );
+        assert_eq!(
+            keybind_api_for(Some("1.19.3"), None),
+            Some(KeybindApi::RegisterEvent)
+        );
+        assert_eq!(
+            keybind_api_for(Some("1.21.1"), None),
+            Some(KeybindApi::RegisterEvent)
+        );
+        // KeyMapping.Category: da 1.21.9.
+        assert_eq!(
+            keybind_api_for(Some("1.21.9"), None),
+            Some(KeybindApi::RegisterEventCategories)
+        );
+        // Senza hint non c'e' nessuna aspettativa.
+        assert_eq!(keybind_api_for(None, None), None);
+        // Fallback sulla major di Forge.
+        assert_eq!(
+            keybind_api_for(None, Some("14.23.5.2859")),
+            Some(KeybindApi::FmlClientRegistry)
+        );
+        assert_eq!(
+            keybind_api_for(None, Some("47.2.0")),
+            Some(KeybindApi::RegisterEvent)
+        );
+    }
+
+    #[test]
+    fn era_della_classe_keybind() {
+        assert_eq!(
+            keybind_era(KeybindApi::FmlClientRegistry),
+            KeybindEra::KeyBinding
+        );
+        assert_eq!(
+            keybind_era(KeybindApi::KeyMappingClientRegistry),
+            KeybindEra::KeyMapping
+        );
+        assert_eq!(
+            keybind_era(KeybindApi::RegisterEventCategories),
+            KeybindEra::KeyMapping
+        );
     }
 
     #[test]

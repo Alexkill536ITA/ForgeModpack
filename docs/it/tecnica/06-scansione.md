@@ -56,10 +56,13 @@ flowchart TD
     Open -->|sì| Names["file_names() → rilevamento formato"]
     Names --> Meta["parse metadati del formato trovato"]
     Names --> Prov["collect_provides + collect_jarjar_provides"]
-    Names --> Keys["collect_lang_docs → keybinds_from_langs"]
+    Names --> BC["scan_bytecode<br/>(classi che usano l'API keybind)"]
+    Names --> Keys["collect_lang_docs"]
+    BC --> KB["keybinds_from_langs<br/>(lang × candidate del bytecode)"]
+    Keys --> KB
     Meta --> Result["ScannedMod<br/>+ format + warnings"]
     Prov --> Result
-    Keys --> Result
+    KB --> Result
     Result --> SortM["ordina per filename"]
     Bad --> SortM
 ```
@@ -152,8 +155,14 @@ ogni jar dentro `META-INF/jarjar/` (leggendolo in un buffer e ri-aprendolo con `
 
 ## Riconoscimento keybind
 
-Nella stessa apertura del jar, `collect_lang_docs` raccoglie i file di lingua inglese in **entrambi
-i formati** e `keybinds_from_langs` ne estrae le keybind.
+Due fonti, incrociate nella stessa apertura del jar:
+
+1. **il bytecode** ([`keybind_scan.rs`](../../../src-tauri/src/keybind_scan.rs)) — come Forge dichiara
+   *davvero* una keybind: keybind CERTE;
+2. **i file di lingua** (`collect_lang_docs` + `is_keybind_key`) — euristica sul nome della chiave:
+   keybind PROBABILI.
+
+Ogni `KeybindAction` porta quindi un campo `source` (`"bytecode"` | `"lang"`).
 
 ```mermaid
 flowchart TD
@@ -162,32 +171,82 @@ flowchart TD
     Top --> Ord
     JJ --> Ord
     Ord["ordina: formato del profilo per primo"] --> Parse["lang_entries<br/>JSON: oggetto piatto<br/>Properties: chiave=testo, # commenti"]
-    Parse --> Test{"is_keybind_key(key)?"}
-    Test -->|no| Skip["scarta"]
-    Test -->|sì| Dedup{"già visto?"}
+    BC["scan_bytecode(archive)<br/>stringhe delle classi che usano l'API keybind"] --> Test
+    Parse --> Test{"chiave tra le candidate<br/>del bytecode?"}
+    Test -->|sì| Cert["source = bytecode<br/>(certa)"]
+    Test -->|no| Heur{"is_keybind_key(key)?"}
+    Heur -->|sì| Lang["source = lang<br/>(euristica)"]
+    Heur -->|no| Skip["scarta"]
+    Cert --> Dedup{"già visto?"}
+    Lang --> Dedup
     Dedup -->|sì| Skip
-    Dedup -->|no| Add["KeybindAction {key, label}"]
+    Dedup -->|no| Add["KeybindAction {key, label, source}"]
     Add --> Sort["ordina per label"]
 ```
 
-Il riconoscimento del path è **case-insensitive** (`en_US.lang` legacy vs `en_us.json`); l'ordine
-mette per primo il formato atteso dal profilo, così sui jar con entrambi vince quello coerente con
-la versione MC. Se il jar non ha **nessun** file di lingua inglese, la scansione lo segnala nei
-`warnings` (è il caso in cui le keybind non sono rilevabili).
+Il riconoscimento del path dei lang è **case-insensitive** (`en_US.lang` legacy vs `en_us.json`);
+l'ordine mette per primo il formato atteso dal profilo, così sui jar con entrambi vince quello
+coerente con la versione MC. I contenuti sono decodificati come UTF-8 e, se i byte non sono validi,
+come **ISO-8859-1** (comune nei `.lang`/`mcmod.info` legacy): altrimenti un solo byte fuori posto
+farebbe scartare l'intero file e perdere tutte le keybind di quel mod. Il BOM UTF-8 viene rimosso
+(faceva fallire il parse JSON).
 
-### `is_keybind_key` — euristica
+### Dal bytecode: `scan_bytecode`
+
+Su Forge/NeoForge una keybind è un oggetto `KeyBinding`/`KeyMapping` costruito nel codice, e la sua
+chiave di traduzione è una **stringa costante** nel class file. Quindi:
+
+1. per ogni `.class` del jar (e dei JarJar annidati) si legge **solo header + constant pool**
+   ([`class_scan.rs`](../../../src-tauri/src/class_scan.rs)): la decompressione si ferma lì;
+2. se la classe referenzia una delle classi SDK (`forge_spec::KEYBIND_MARKERS`), le sue stringhe
+   costanti diventano **candidate**;
+3. una candidata che è anche una chiave dei lang è una keybind certa — anche se il nome non ha
+   nessun marcatore.
+
+Funziona perché la reobfuscation SRG dei mod Forge rinomina **solo metodi e campi**: i nomi delle
+classi Minecraft restano leggibili nei jar pubblicati. Su **Fabric/Quilt** le classi MC sono in
+*intermediary* (`class_304`), quindi lo scan del bytecode non si applica e resta la sola euristica.
+
+### API keybind per versione (tabella SDK)
+
+In [`forge_spec.rs`](../../../src-tauri/src/forge_spec.rs), accanto ai profili di formato:
+
+| Versioni MC | Classe keybind | Registrazione |
+|---|---|---|
+| ≤ 1.7.10 | `net.minecraft.client.settings.KeyBinding` | `cpw.mods.fml.client.registry.ClientRegistry` |
+| 1.8 – 1.16.5 | `net.minecraft.client.settings.KeyBinding` | `net.minecraftforge.fml.client.registry.ClientRegistry` |
+| 1.17 – 1.19.2 | `net.minecraft.client.KeyMapping` | `ClientRegistry` (in `FMLClientSetupEvent`) |
+| ≥ 1.19.3 | `net.minecraft.client.KeyMapping` | `RegisterKeyMappingsEvent` (NeoForge: package `net.neoforged.neoforge.client.event`) |
+| ≥ 1.21.9 / NeoForge 21.9 | `KeyMapping.Category` | `RegisterKeyMappingsEvent#registerCategory` |
+
+Le classi vengono cercate **tutte**, non solo quelle del profilo: la cartella `mods` può contenere
+jar di altre versioni. L'API attesa (`keybind_api_for`) serve solo alla diagnostica: se l'era della
+classe rilevata (`KeyBinding` ≤1.16 vs `KeyMapping` ≥1.17) non è quella della versione MC del
+progetto, arriva un warning — segnale tipico di un jar per la versione sbagliata.
+
+### `is_keybind_key` — euristica (fallback)
 
 Una chiave è considerata keybind se:
-1. **non** contiene `.categories.` né inizia con `key.categories.` (esclude i titoli di categoria);
+1. **non** è il titolo di una categoria (`is_category_key`): segmento `categories`, oppure `category`
+   preceduto da `key` — quest'ultimo copre il formato `key.category.<namespace>.<path>` introdotto
+   con `KeyMapping.Category` in **1.21.9**;
 2. **e** ha almeno un segmento marcatore tra: `key`, `keys`, `keybind`, `keybinds`, `keyinfo`,
    `keymapping`.
 
 Questo copre i prefissi eterogenei dei mod: `key.jei.x`, `cos.key.x`, `create.keyinfo.x`,
 `iris.keybind.x`, `keybind.simplyjetpacks.x`, `mod.chiselsandbits.keys.x`.
 
-> **Limite noto**: i mod che nominano le KeyMapping **senza** alcun marcatore (es. `config.jsg.*`,
-> `placebo.toggleTrails`) non sono distinguibili dalle altre traduzioni → non coperti dallo scan
-> generico. Per quelli si usa la risoluzione mirata (sotto).
+> **Limite residuo**: le keybind la cui chiave è **costruita a runtime** (concatenazione
+> `"key." + MODID + ".x"`) o dichiarata in una classe che non referenzia l'SDK non compaiono tra le
+> candidate del bytecode; se il nome non ha marcatori restano fuori dallo scan generico. Per quelle
+> c'è la risoluzione mirata (sotto). Viceversa, una chiave con marcatore che **non** è una keybind
+> (es. `gui.mod.press.key`) resta nell'elenco ma marcata `source = "lang"`: la pagina Keybinds mostra
+> prima le certe.
+
+> ⚠️ Costo: lo scan del bytecode aggiunge decompressione (≈17 ms per 1000 classi in release). Per
+> questo `scan_mods` legge i jar su **più thread** (`std::thread::scope`, fino a 8) e l'esito resta
+> cachato in SQLite senza TTL; l'ordine finale è sempre alfabetico, quindi non dipende dallo
+> scheduling.
 
 ## Risoluzione mirata delle keybind
 
@@ -213,12 +272,67 @@ tipici:
 | `… is not valid TOML …` | `mods.toml` malformato: metadati letti in modo permissivo |
 | `Dependencies are declared under a different mod id …` | chiave `[[dependencies.x]]` non allineata al `modId` |
 | `Dependencies declared with … while … is expected` | stile `mandatory =` / `type =` non allineato alla versione MC |
-| `No English language file … found` | keybind non rilevabili da questo jar |
+| `No English language file … found` | il jar dichiara keybind ma non ha lang inglesi → non rilevabili (per le mod senza keybind non viene emesso) |
+| `Keybinds use KeyBinding … expects KeyMapping …` | l'era della classe keybind nel bytecode non è quella della versione MC del progetto |
+| `Bytecode scan stopped after … classes` | jar oltre il limite di classi ispezionate: qualche keybind può mancare |
 | `Version placeholder could not be resolved` | `${…}` non risolvibile senza `Implementation-Version` |
 | `No known mod metadata … was found` | nessun formato riconosciuto (dati dal MANIFEST o solo filename) |
 
 I campi **non** finiscono in `project.json`: List Mods li legge dalla cache di scansione (peek al
 mount), così il file di progetto resta leggero.
+
+## Sincronizzazione con il disco
+
+Le liste derivate dal disco (mod e datapack) **non devono restare congelate** a quando il progetto è
+stato salvato: se una mod viene rimossa, aggiunta o aggiornata fuori dall'app, il project deve
+adeguarsi. La regola:
+
+- **a ogni apertura di progetto** (create/open → `loadId` incrementato nello slice project) la prima
+  lettura rilegge i file dal disco, anche se `project.mods` è già popolato;
+- **dentro la stessa apertura** le letture successive usano la cache SQLite, così navigare tra le
+  pagine non riapre tutti i jar;
+- il **refresh manuale** forza sempre la rilettura.
+
+```mermaid
+sequenceDiagram
+    participant U as Utente
+    participant P as project-slice
+    participant S as ModsSync (layout)
+    participant L as mods-sync.ts
+    participant R as scan_mods (Rust)
+
+    U->>P: apri progetto
+    P->>P: loadId += 1
+    P-->>S: loadId cambiato
+    S->>L: getModsScanForLoad(workpath, loadId)
+    L->>R: scan_mods (force: prima lettura dell'apertura)
+    R-->>L: ScannedMod[]
+    L-->>S: risultato (+ scritto in cache SQLite)
+    S->>S: toProjectMods + diffMods
+    alt qualcosa è cambiato
+        S->>P: updateProject(mods) + toast
+    else nessuna differenza
+        S-->>S: nessun dispatch (niente SaveBar a vuoto)
+    end
+    U->>L: apre List Mods
+    L-->>U: cache (nessuna riapertura dei jar)
+```
+
+| Elemento | Ruolo |
+|---|---|
+| `loadId` ([project-slice.ts](../../../src/redux/project-slice.ts)) | Contatore delle aperture, non persistito: il segnale "rileggi dal disco" |
+| `getModsScanForLoad` / `getDatapacksScanForLoad` ([mods-sync.ts](../../../src/lib/mods-sync.ts)) | Rilettura alla prima richiesta dell'apertura, poi cache; **dedup** delle richieste concorrenti (una sola scansione condivisa) |
+| `refreshModsScan` / `refreshDatapacksScan` | Refresh manuale: forza sempre |
+| `toProjectMods` / `toProjectDatapacks` | Scansione → liste del project, preservando `active` per `filename`; le voci non più presenti sul disco spariscono |
+| `diffMods` / `diffDatapacks` | Conteggio aggiunte/rimozioni/aggiornamenti (`active` escluso: è dell'utente) |
+| `<ModsSync />` ([mods-sync.tsx](../../../src/components/mods-sync.tsx)) | Headless nel layout: sincronizza a ogni apertura **qualunque pagina sia aperta**, aggiorna anche `keybindActions`, mostra il toast del diff |
+
+> **`updateProject` solo se il diff non è vuoto**: aprire un progetto o una pagina non deve far
+> comparire la SaveBar quando sul disco non è cambiato niente.
+
+> ⚠️ **Gotcha React**: le guardie "già sincronizzato" vanno controllate **e impostate dopo l'`await`**.
+> Messe prima, in dev (React StrictMode invoca gli effect due volte) la prima invocazione viene
+> annullata e la seconda salta il lavoro: risultato, nessuna sincronizzazione.
 
 ## Datapack
 
@@ -236,8 +350,8 @@ Le scansioni sono cachate in SQLite (nessun TTL, invalidate solo dal refresh man
 
 | Helper | File | Chiave cache | Comando |
 |--------|------|--------------|---------|
-| `getModsScanCached` / `peekModsScanCache` | [`mods-scan.ts`](../../../src/lib/mods-scan.ts) | `mods:v3:<mc>:<forge>:<workpath>` | `scan_mods` |
-| `getKeybindActionsCached` / `peekKeybindActionsCache` | [`keybind-cache.ts`](../../../src/lib/keybind-cache.ts) | (deriva da `mods:v3`) | — |
+| `getModsScanCached` / `peekModsScanCache` | [`mods-scan.ts`](../../../src/lib/mods-scan.ts) | `mods:v4:<mc>:<forge>:<workpath>` | `scan_mods` |
+| `getKeybindActionsCached` / `peekKeybindActionsCache` | [`keybind-cache.ts`](../../../src/lib/keybind-cache.ts) | (deriva da `mods:v4`) | — |
 | `resolveKeybindLabels` | [`keybind-cache.ts`](../../../src/lib/keybind-cache.ts) | (nessuna) | `resolve_keybind_labels` |
 | `getDatapacksScanCached` / `peekDatapacksScanCache` | [`datapacks-scan.ts`](../../../src/lib/datapacks-scan.ts) | `datapacks:v1:<dir>` | `scan_datapacks` |
 

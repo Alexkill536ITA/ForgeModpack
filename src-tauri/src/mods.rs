@@ -28,7 +28,8 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 use zip::ZipArchive;
 
-use crate::forge_spec::{self, DepStyle, ForgeSpec, LangKind, MetaFormat};
+use crate::forge_spec::{self, DepStyle, ForgeSpec, KeybindApi, LangKind, MetaFormat};
+use crate::keybind_scan;
 
 // Nomi dei file di metadati riconosciuti.
 const NEOFORGE_TOML: &str = "META-INF/neoforge.mods.toml";
@@ -45,6 +46,17 @@ pub struct ModDependency {
     pub mandatory: bool,
 }
 
+/// Da dove viene la certezza che una chiave di traduzione sia una keybind.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum KeybindSource {
+    /// La chiave e' una stringa costante di una classe che usa l'API keybind di
+    /// Forge/NeoForge (`KeyBinding`/`KeyMapping`): keybind CERTA.
+    Bytecode,
+    /// La chiave "sembra" una keybind dal nome (euristica sui lang): probabile.
+    Lang,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KeybindAction {
@@ -52,6 +64,8 @@ pub struct KeybindAction {
     pub key: String,
     /// Testo leggibile dal file en_us (fallback: la chiave stessa).
     pub label: String,
+    /// Come e' stata riconosciuta: dal bytecode (certa) o dal nome (euristica).
+    pub source: KeybindSource,
 }
 
 #[derive(Serialize)]
@@ -97,11 +111,34 @@ fn empty_mod(filename: &str, modloader: &str, format: &str) -> ScannedMod {
 }
 
 /// Legge il contenuto testuale di una entry dello zip, se presente.
+///
+/// I file dei mod NON sono sempre UTF-8: i `.lang` e i `mcmod.info` dei mod
+/// legacy (Forge <= 1.12.2) sono spesso in ISO-8859-1. Leggere in UTF-8 stretto
+/// scarterebbe l'INTERO file (perdendo tutte le keybind di quel mod), quindi in
+/// caso di byte non validi si ripiega su ISO-8859-1, che non puo' fallire.
 fn read_entry<R: Read + Seek>(archive: &mut ZipArchive<R>, name: &str) -> Option<String> {
     let mut file = archive.by_name(name).ok()?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents).ok()?;
-    Some(contents)
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
+    Some(decode_text(bytes))
+}
+
+/// UTF-8 se valido, altrimenti ISO-8859-1 (latin-1): ogni byte e' un code point.
+/// Rimuove anche il BOM UTF-8, che altrimenti farebbe fallire il parse JSON
+/// (serde_json non lo tollera) o finirebbe nella prima chiave di un `.lang`.
+fn decode_text(bytes: Vec<u8>) -> String {
+    let bytes = match bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        Some(rest) => rest.to_vec(),
+        None => bytes,
+    };
+    match String::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(err) => err
+            .into_bytes()
+            .into_iter()
+            .map(|b| b as char)
+            .collect::<String>(),
+    }
 }
 
 /// Estrae un campo dal MANIFEST.MF (es. `Implementation-Version`, usato da Forge
@@ -905,8 +942,10 @@ fn unknown_mod(filename: &str, manifest: Option<&str>) -> ScannedMod {
 
 /// Apre un singolo .jar e ne estrae i metadati nel formato del loader trovato.
 /// `spec` e' il formato ATTESO per la versione MC del progetto: usato come
-/// tie-break e per la diagnostica, mai come unica fonte di verita'.
-fn read_mod(path: &Path, spec: &ForgeSpec) -> ScannedMod {
+/// tie-break e per la diagnostica, mai come unica fonte di verita'. `keybind_api`
+/// e' l'API keybind attesa per quella versione (solo diagnostica: le classi SDK
+/// vengono cercate tutte, vedi `keybind_scan`).
+fn read_mod(path: &Path, spec: &ForgeSpec, keybind_api: Option<KeybindApi>) -> ScannedMod {
     let filename = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -1025,14 +1064,58 @@ fn read_mod(path: &Path, spec: &ForgeSpec) -> ScannedMod {
     scanned.provides = provides;
 
     // Keybind della mod: lette nella stessa apertura del jar (un solo I/O).
+    //
+    // Su Forge/NeoForge si guarda anche il BYTECODE: le classi che usano l'API
+    // keybind (`KeyBinding`/`KeyMapping`, vedi `keybind_scan`) dichiarano le
+    // chiavi di traduzione come stringhe costanti, quindi l'incrocio con i lang
+    // da' keybind CERTE invece che indovinate dal nome. Su Fabric/Quilt le classi
+    // Minecraft sono in intermediary: la' resta la sola euristica sui lang.
+    let uses_forge_api = matches!(scanned.modloader.as_str(), "forge" | "neoforge" | "unknown");
+    let bytecode = if uses_forge_api {
+        keybind_scan::scan_bytecode(&mut archive)
+    } else {
+        keybind_scan::BytecodeScan::default()
+    };
+
     let langs = collect_lang_docs(&mut archive, spec);
-    if langs.is_empty() {
+    // Il warning sui lang mancanti ha senso solo se il jar dichiara keybind: per
+    // le mod senza keybind l'assenza di lang inglesi non e' un problema.
+    let expects_keybinds = if uses_forge_api {
+        bytecode.uses_keybind_api()
+    } else {
+        true
+    };
+    if langs.is_empty() && expects_keybinds {
         scanned.warnings.push(
             "No English language file (en_us.json / en_US.lang) found: keybinds cannot be detected."
                 .to_string(),
         );
     }
-    scanned.keybinds = keybinds_from_langs(&langs);
+    if bytecode.truncated {
+        scanned.warnings.push(format!(
+            "Bytecode scan stopped after {} classes: some keybinds may be missing.",
+            bytecode.classes
+        ));
+    }
+    // Era della classe keybind diversa da quella attesa per la versione MC del
+    // progetto: segnale tipico di un jar compilato per un'altra versione.
+    if let Some(expected) = keybind_api {
+        let expected_era = forge_spec::keybind_era(expected);
+        if !bytecode.eras.is_empty() && !bytecode.eras.contains(&expected_era) {
+            let found = bytecode
+                .eras
+                .iter()
+                .map(|era| forge_spec::keybind_era_label(*era))
+                .collect::<Vec<_>>()
+                .join(", ");
+            scanned.warnings.push(format!(
+                "Keybinds use {}, but the project's Minecraft version expects {}: the jar may target a different Minecraft version.",
+                found,
+                forge_spec::keybind_era_label(expected_era)
+            ));
+        }
+    }
+    scanned.keybinds = keybinds_from_langs(&langs, &bytecode.candidates);
 
     scanned
 }
@@ -1040,6 +1123,10 @@ fn read_mod(path: &Path, spec: &ForgeSpec) -> ScannedMod {
 /// Comando Tauri: scansiona una directory restituendo i metadati di tutti i .jar.
 /// `mc` (versione di Minecraft del progetto) e `forge` (versione del loader) sono
 /// hint opzionali: selezionano il profilo di formato atteso (vedi `forge_spec`).
+///
+/// I jar vengono letti su piu' THREAD: la lettura del bytecode per le keybind
+/// aggiunge decompressione, e i jar sono indipendenti tra loro. L'ordine finale e'
+/// sempre alfabetico, quindi il risultato non dipende dallo scheduling.
 #[tauri::command]
 pub fn scan_mods(
     dir: String,
@@ -1047,9 +1134,10 @@ pub fn scan_mods(
     forge: Option<String>,
 ) -> Result<Vec<ScannedMod>, String> {
     let spec = forge_spec::spec_for(mc.as_deref(), forge.as_deref());
+    let keybind_api = forge_spec::keybind_api_for(mc.as_deref(), forge.as_deref());
     let entries = fs::read_dir(&dir).map_err(|e| e.to_string())?;
 
-    let mut mods: Vec<ScannedMod> = entries
+    let paths: Vec<std::path::PathBuf> = entries
         .flatten()
         .map(|e| e.path())
         .filter(|p| {
@@ -1058,8 +1146,31 @@ pub fn scan_mods(
                 .map(|e| e.eq_ignore_ascii_case("jar"))
                 .unwrap_or(false)
         })
-        .map(|p| read_mod(&p, spec))
         .collect();
+
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(2)
+        .clamp(1, 8);
+    let chunk_size = paths.len().div_ceil(threads).max(1);
+
+    let mut mods: Vec<ScannedMod> = std::thread::scope(|scope| {
+        let handles: Vec<_> = paths
+            .chunks(chunk_size)
+            .map(|chunk| {
+                scope.spawn(move || {
+                    chunk
+                        .iter()
+                        .map(|p| read_mod(p, spec, keybind_api))
+                        .collect::<Vec<ScannedMod>>()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap_or_default())
+            .collect()
+    });
 
     mods.sort_by(|a, b| a.filename.to_lowercase().cmp(&b.filename.to_lowercase()));
     Ok(mods)
@@ -1208,8 +1319,9 @@ struct LangDoc {
 
 /// True se la chiave di traduzione `k` è (verosimilmente) una keybind.
 fn is_keybind_key(k: &str) -> bool {
-    // Esclude i titoli di categoria della schermata Controls (non azioni).
-    if k.contains(".categories.") || k.starts_with("key.categories.") {
+    // Esclude i titoli di categoria della schermata Controls (non azioni), in
+    // entrambi i formati: `key.categories.*` e `key.category.<ns>.<path>` (1.21.9+).
+    if keybind_scan::is_category_key(k) {
         return false;
     }
     // Un segmento della chiave è un marcatore di keybind.
@@ -1332,21 +1444,31 @@ fn collect_lang_docs<R: Read + Seek>(archive: &mut ZipArchive<R>, spec: &ForgeSp
     out
 }
 
-/// Estrae le keybind (chiave + label) dai file di lingua già letti. Dedup per
-/// chiave (vince il primo file, cioè il formato atteso), ordinate per label.
-fn keybinds_from_langs(langs: &[LangDoc]) -> Vec<KeybindAction> {
+/// Estrae le keybind dai file di lingua già letti, incrociandoli con le chiavi
+/// dichiarate nel BYTECODE (`candidates`, vedi `keybind_scan`):
+///   - chiave presente tra le candidate  -> keybind CERTA (`source = bytecode`),
+///     anche se il nome non ha nessun marcatore (`placebo.toggleTrails`);
+///   - altrimenti si ricade sull'euristica sul nome (`source = lang`).
+///
+/// Dedup per chiave (vince il primo lang, cioè il formato atteso dal profilo),
+/// ordinate per label.
+fn keybinds_from_langs(langs: &[LangDoc], candidates: &HashSet<String>) -> Vec<KeybindAction> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut keybinds: Vec<KeybindAction> = Vec::new();
 
     for doc in langs {
         for (key, label) in lang_entries(doc) {
-            if !is_keybind_key(&key) {
+            let source = if candidates.contains(&key) {
+                KeybindSource::Bytecode
+            } else if is_keybind_key(&key) {
+                KeybindSource::Lang
+            } else {
                 continue;
-            }
+            };
             if !seen.insert(key.clone()) {
                 continue; // dedup per chiave (namespace/lang multipli)
             }
-            keybinds.push(KeybindAction { key, label });
+            keybinds.push(KeybindAction { key, label, source });
         }
     }
 
@@ -1557,14 +1679,69 @@ mod tests {
         .into_entries();
         assert_eq!(json.len(), 2);
 
-        let keybinds = keybinds_from_langs(&[LangDoc {
-            kind: LangKind::Properties,
-            content: "key.tconstruct.book=Open Book\nkey.categories.tconstruct=Tinkers\nitem.x.name=X"
-                .to_string(),
-        }]);
+        let keybinds = keybinds_from_langs(
+            &[LangDoc {
+                kind: LangKind::Properties,
+                content:
+                    "key.tconstruct.book=Open Book\nkey.categories.tconstruct=Tinkers\nitem.x.name=X"
+                        .to_string(),
+            }],
+            &HashSet::new(),
+        );
         assert_eq!(keybinds.len(), 1, "categorie e traduzioni normali escluse");
         assert_eq!(keybinds[0].key, "key.tconstruct.book");
         assert_eq!(keybinds[0].label, "Open Book");
+        assert_eq!(keybinds[0].source, KeybindSource::Lang);
+    }
+
+    #[test]
+    fn le_chiavi_dal_bytecode_vincono_sull_euristica_del_nome() {
+        let langs = [LangDoc {
+            kind: LangKind::Json,
+            content: r#"{
+                "placebo.toggleTrails": "Toggle Trails",
+                "key.placebo.other": "Other",
+                "gui.placebo.press.key": "Press a key",
+                "key.category.placebo.main": "Placebo"
+            }"#
+            .to_string(),
+        }];
+        // Solo la prima chiave e' dichiarata nel bytecode.
+        let candidates: HashSet<String> = ["placebo.toggleTrails".to_string()].into_iter().collect();
+        let keybinds = keybinds_from_langs(&langs, &candidates);
+
+        let by_key = |k: &str| keybinds.iter().find(|kb| kb.key == k);
+        // Nome senza marcatore: la trova solo grazie al bytecode.
+        assert_eq!(
+            by_key("placebo.toggleTrails").map(|kb| kb.source),
+            Some(KeybindSource::Bytecode)
+        );
+        // Nome con marcatore ma non nel bytecode: resta un'euristica.
+        assert_eq!(
+            by_key("key.placebo.other").map(|kb| kb.source),
+            Some(KeybindSource::Lang)
+        );
+        // La categoria in formato 1.21.9+ (`key.category.<ns>.<path>`) non e' un'azione.
+        assert!(by_key("key.category.placebo.main").is_none());
+        // `gui.placebo.press.key` passa l'euristica (segmento "key"): e' il tipo di
+        // falso positivo che il bytecode permette di distinguere via `source`.
+        assert_eq!(
+            by_key("gui.placebo.press.key").map(|kb| kb.source),
+            Some(KeybindSource::Lang)
+        );
+    }
+
+    #[test]
+    fn decodifica_lang_non_utf8_e_con_bom() {
+        // "Café" in ISO-8859-1: byte 0xE9 non e' UTF-8 valido.
+        let latin1 = vec![
+            b'k', b'e', b'y', b'.', b'x', b'.', b'a', b'=', b'C', b'a', b'f', 0xE9,
+        ];
+        let text = decode_text(latin1);
+        assert_eq!(text, "key.x.a=Café");
+
+        let with_bom = [vec![0xEF, 0xBB, 0xBF], b"{\"a\":1}".to_vec()].concat();
+        assert_eq!(decode_text(with_bom), "{\"a\":1}");
     }
 
     #[test]
@@ -1597,6 +1774,15 @@ mod tests {
 
     /// Scrive un .jar (zip) di prova con le entry indicate.
     fn write_jar(dir: &Path, name: &str, files: &[(&str, &str)]) {
+        let binary: Vec<(&str, Vec<u8>)> = files
+            .iter()
+            .map(|(p, c)| (*p, c.as_bytes().to_vec()))
+            .collect();
+        write_jar_bytes(dir, name, &binary);
+    }
+
+    /// Come `write_jar`, ma con entry binarie (serve per i `.class`).
+    fn write_jar_bytes(dir: &Path, name: &str, files: &[(&str, Vec<u8>)]) {
         use std::io::Write;
         use zip::write::SimpleFileOptions;
 
@@ -1604,7 +1790,7 @@ mod tests {
         let mut zip = zip::ZipWriter::new(file);
         for (path, content) in files {
             zip.start_file(*path, SimpleFileOptions::default()).unwrap();
-            zip.write_all(content.as_bytes()).unwrap();
+            zip.write_all(content).unwrap();
         }
         zip.finish().unwrap();
     }
@@ -1683,7 +1869,7 @@ mod tests {
 
         // Risoluzione mirata: trova una chiave SENZA marcatore dentro un .lang.
         let resolved = resolve_keybind_labels(
-            path,
+            path.clone(),
             vec!["item.foo.name".into()],
             Some("1.12.2".into()),
             None,
@@ -1695,4 +1881,142 @@ mod tests {
 
         fs::remove_dir_all(&dir).ok();
     }
+
+    /// Keybind dichiarate nel bytecode: chiave senza marcatore riconosciuta, e
+    /// diagnostica quando l'era della classe keybind non e' quella della versione
+    /// MC del progetto.
+    #[test]
+    fn scansione_keybind_dal_bytecode() {
+        use crate::class_scan::test_support::class_file;
+
+        let dir = std::env::temp_dir().join(format!("fmp-bytecode-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // Mod 1.16 (classe `KeyBinding`) con una keybind dal nome non standard.
+        write_jar_bytes(
+            &dir,
+            "placebo.jar",
+            &[
+                (
+                    "META-INF/mods.toml",
+                    b"[[mods]]\nmodId=\"placebo\"\ndisplayName=\"Placebo\"\nversion=\"4.6.0\"\n".to_vec(),
+                ),
+                (
+                    "assets/placebo/lang/en_us.json",
+                    br#"{"placebo.toggleTrails":"Toggle Trails","gui.placebo.hold.key":"Hold key"}"#
+                        .to_vec(),
+                ),
+                (
+                    "shadows/placebo/PlaceboClient.class",
+                    class_file(
+                        &[
+                            "net/minecraft/client/settings/KeyBinding",
+                            "net/minecraftforge/fml/client/registry/ClientRegistry",
+                        ],
+                        &["placebo.toggleTrails"],
+                    ),
+                ),
+            ],
+        );
+
+        // Progetto su 1.20.1: si aspetta `KeyMapping`, il jar usa `KeyBinding`.
+        let mods = scan_mods(
+            dir.to_string_lossy().to_string(),
+            Some("1.20.1".into()),
+            Some("47.2.0".into()),
+        )
+        .unwrap();
+        let m = mods.iter().find(|m| m.filename == "placebo.jar").unwrap();
+
+        let toggle = m
+            .keybinds
+            .iter()
+            .find(|k| k.key == "placebo.toggleTrails")
+            .expect("keybind senza marcatore trovata grazie al bytecode");
+        assert_eq!(toggle.label, "Toggle Trails");
+        assert_eq!(toggle.source, KeybindSource::Bytecode);
+
+        // La traduzione con segmento "key" resta un'euristica, distinguibile.
+        let hold = m
+            .keybinds
+            .iter()
+            .find(|k| k.key == "gui.placebo.hold.key")
+            .expect("euristica sul nome ancora attiva");
+        assert_eq!(hold.source, KeybindSource::Lang);
+
+        assert!(
+            m.warnings
+                .iter()
+                .any(|w| w.contains("KeyBinding") && w.contains("KeyMapping")),
+            "atteso warning sull'era della classe keybind: {:?}",
+            m.warnings
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Il warning sui lang mancanti si emette solo per i jar che dichiarano
+    /// keybind: una mod senza keybind non deve generare rumore in diagnostica.
+    #[test]
+    fn nessun_warning_lang_per_le_mod_senza_keybind() {
+        use crate::class_scan::test_support::class_file;
+
+        let dir = std::env::temp_dir().join(format!("fmp-nolang-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        write_jar_bytes(
+            &dir,
+            "plain.jar",
+            &[
+                (
+                    "META-INF/mods.toml",
+                    b"[[mods]]\nmodId=\"plain\"\ndisplayName=\"Plain\"\nversion=\"1.0\"\n".to_vec(),
+                ),
+                (
+                    "com/plain/Main.class",
+                    class_file(&["java/lang/Object"], &["plain.something"]),
+                ),
+            ],
+        );
+        write_jar_bytes(
+            &dir,
+            "bound.jar",
+            &[
+                (
+                    "META-INF/mods.toml",
+                    b"[[mods]]\nmodId=\"bound\"\ndisplayName=\"Bound\"\nversion=\"1.0\"\n".to_vec(),
+                ),
+                (
+                    "com/bound/Keys.class",
+                    class_file(&["net/minecraft/client/KeyMapping"], &["key.bound.jump"]),
+                ),
+            ],
+        );
+
+        let mods = scan_mods(
+            dir.to_string_lossy().to_string(),
+            Some("1.20.1".into()),
+            None,
+        )
+        .unwrap();
+
+        let plain = mods.iter().find(|m| m.filename == "plain.jar").unwrap();
+        assert!(
+            !plain.warnings.iter().any(|w| w.contains("language file")),
+            "mod senza keybind: nessun warning sui lang ({:?})",
+            plain.warnings
+        );
+
+        let bound = mods.iter().find(|m| m.filename == "bound.jar").unwrap();
+        assert!(
+            bound.warnings.iter().any(|w| w.contains("language file")),
+            "mod con keybind e senza lang: warning atteso ({:?})",
+            bound.warnings
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
 }

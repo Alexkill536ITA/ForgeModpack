@@ -57,8 +57,10 @@ import {
   setKeybindActionsError,
   setKeybindActionsLoading,
 } from "../../redux/keybind-actions-slice"
-import { getModsScanCached, peekModsScanCache, scannedMod, scannedKeybind } from "../../lib/mods-scan"
+import { scannedMod, scannedKeybind } from "../../lib/mods-scan"
+import { getModsScanForLoad, refreshModsScan } from "../../lib/mods-sync"
 import { resolveScanHint } from "../../lib/forge-spec"
+import { useBusy } from "../../lib/use-busy"
 import { cn } from "../../lib/utils"
 import { keybind, keybindCategory, keybindMap, keybindTag, macro, macroModifier, mod, project } from "../../model/models"
 import {
@@ -312,12 +314,16 @@ function KeybindsBoard({ project }: { project: project }) {
   const categoryOf = (name: string) => categories.find((c) => c.name === name)
   const colorOf = (name: string) => categoryOf(name)?.color ?? "#888888"
 
-  // Azioni keybind derivate dalla scansione UNIFICATA dei mod (cache SQLite
-  // `mods:<workpath>`). Al mount: se la cache è presente la si carica subito;
-  // se è assente si esegue la scansione (metadati + keybind in un colpo), così
-  // la pagina è utilizzabile anche senza aver prima aperto List Mods.
+  // Azioni keybind derivate dalla scansione UNIFICATA dei mod. Alla prima lettura
+  // di ogni APERTURA di progetto i jar vengono riletti dal disco (così mod
+  // rimosse o aggiornate si riflettono anche qui); dentro la stessa apertura si
+  // usa la cache SQLite. La pagina è utilizzabile anche senza aver prima aperto
+  // List Mods.
   const keybindActions = useAppSelector(selectKeybindActions)
+  const loadId = useAppSelector((s) => s.project.loadId)
   const workpath = project.configs.workpath
+  // Aprire tutti i jar blocca l'interazione: overlay globale (`use-busy.ts`).
+  const busy = useBusy()
   const [scanning, setScanning] = useState(false)
   // Scansione UNIFICATA caricata nella pagina: è l'UNICA fonte per risolvere una
   // category alla mod + alle sue keybind (indipendente da project.mods, che può
@@ -330,45 +336,55 @@ function KeybindsBoard({ project }: { project: project }) {
       .filter((m) => m.modId && m.keybinds.length > 0)
       .map((m) => ({ filename: m.filename, modId: m.modId, keybinds: m.keybinds }))
 
+  // La guardia è controllata e impostata DOPO l'await (non prima): in dev React
+  // StrictMode invoca l'effect due volte e una guardia anticipata, unita al flag
+  // di cancellazione, scarterebbe l'unico lavoro avviato. Le due invocazioni
+  // condividono la stessa scansione (dedup in `mods-sync.ts`) e applica la prima.
   const bootstrapped = useRef<string | null>(null)
   useEffect(() => {
-    if (bootstrapped.current === workpath) return
-    bootstrapped.current = workpath
-    let cancelled = false
+    const key = `${workpath}::${loadId}`
+    if (bootstrapped.current === key) return
     ;(async () => {
+      setScanning(true)
       try {
         // L'hint di versione decide il formato di metadati/lang atteso (Forge
         // legacy vs moderno) e fa parte della chiave di cache.
         const hint = await resolveScanHint(project)
-        if (cancelled) return
-        let mods = await peekModsScanCache(workpath, hint)
-        if (cancelled) return
-        if (!mods) {
-          // Nessuna cache: scansione unificata (una sola apertura dei jar).
-          setScanning(true)
-          mods = await getModsScanCached(workpath, false, hint)
-        }
-        if (cancelled) return
+        // Rilettura dal disco alla prima richiesta di questa apertura, poi cache.
+        const mods = await busy(
+          t("busy.resolvingKeybinds"),
+          () => getModsScanForLoad(workpath, loadId, hint),
+          { detail: workpath }
+        )
+        if (bootstrapped.current === key) return
+        bootstrapped.current = key
         setScanMods(mods)
         dispatch(setKeybindActions({ workpath, mods: toActions(mods) }))
       } catch (err) {
         console.error(err)
+        // Meglio nessuna azione che quelle del progetto precedente.
+        setScanMods([])
       } finally {
-        if (!cancelled) setScanning(false)
+        setScanning(false)
       }
     })()
-    return () => {
-      cancelled = true
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workpath, dispatch])
+  }, [workpath, loadId, dispatch, busy])
 
   // Scansione unificata dei jar (via cache SQLite). `force` = refresh manuale.
   async function scanKeybinds(force: boolean) {
     setScanning(true)
     dispatch(setKeybindActionsLoading(true))
     try {
-      const mods = await getModsScanCached(workpath, force, await resolveScanHint(project))
+      const hint = await resolveScanHint(project)
+      const mods = await busy(
+        t("busy.resolvingKeybinds"),
+        () =>
+          force
+            ? refreshModsScan(workpath, loadId, hint)
+            : getModsScanForLoad(workpath, loadId, hint),
+        { detail: workpath }
+      )
       setScanMods(mods)
       dispatch(setKeybindActions({ workpath, mods: toActions(mods) }))
     } catch (err) {
@@ -394,9 +410,14 @@ function KeybindsBoard({ project }: { project: project }) {
     }
     const m = modByName.get(name) ?? modByModId.get(name)
     const kb = keybindsByModId.get(m?.modId ?? name)
-    return kb && kb.length > 0
-      ? kb.map((a) => ({ value: a.key, label: a.label }))
-      : null
+    if (!kb || kb.length === 0) return null
+    // Prima le keybind CERTE (dichiarate nel bytecode del mod), poi quelle
+    // riconosciute dal solo nome della chiave: le seconde possono includere
+    // traduzioni che non sono keybind. Dentro i due gruppi resta l'ordine per
+    // label deciso da Rust.
+    const certain = kb.filter((a) => a.source === "bytecode")
+    const heuristic = kb.filter((a) => a.source !== "bytecode")
+    return [...certain, ...heuristic].map((a) => ({ value: a.key, label: a.label }))
   }
 
   function commit(next: project) {
@@ -1392,5 +1413,13 @@ function KeybindsBoard({ project }: { project: project }) {
 }
 
 export default function KeybindsPage() {
-  return <ProjectGate>{(project) => <KeybindsBoard project={project} />}</ProjectGate>
+  // Come in List Mods: `key` sull'identità del progetto, così cambiando progetto
+  // la board si rimonta e non resta con le mod scansionate, la mappa attiva e i
+  // filtri della sessione precedente.
+  const projectKey = useAppSelector(
+    (s) => `${s.project.loadId}::${s.project.project?.configs.workpath ?? ""}`
+  )
+  return (
+    <ProjectGate>{(project) => <KeybindsBoard key={projectKey} project={project} />}</ProjectGate>
+  )
 }

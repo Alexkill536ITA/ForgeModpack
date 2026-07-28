@@ -5,19 +5,31 @@ file `.jar` dalla cartella `mods` (e i datapack, se presenti) e li elenca con tu
 
 ## Come funziona la scansione
 
-La prima volta che apri la sezione, l'app **scansiona** la cartella `mods` e legge da ogni jar nome,
-versione, autori, modloader e dipendenze. Il risultato viene ricordato, così le volte successive è
-istantaneo.
+**Ogni volta che apri un progetto** l'app rilegge la cartella `mods` e aggiorna la lista: nome,
+versione, autori, modloader e dipendenze di ogni jar. Vale anche per i progetti già salvati, quindi se
+tra una sessione e l'altra hai **aggiunto, aggiornato o cancellato** dei mod dalla cartella, l'elenco
+si allinea da solo — i mod che non ci sono più spariscono dalla lista.
 
 ```mermaid
 graph LR
-    Scan["Apri List Mods"] --> Read["Legge i .jar in mods/"]
-    Read --> Table["Tabella delle mod"]
-    Table --> Refresh["Pulsante Refresh<br/>per ri-scansionare"]
+    Open["Apri il progetto"] --> Read["Rilegge i .jar in mods/"]
+    Read --> Table["Tabella delle mod aggiornata"]
+    Table --> Nav["Navighi tra le pagine:<br/>nessuna rilettura (istantaneo)"]
+    Nav --> Refresh["Pulsante Refresh:<br/>rilegge quando vuoi"]
 ```
 
-> Usa **Refresh** quando aggiungi, aggiorni o rimuovi mod dalla cartella: aggiorna l'elenco leggendo di
-> nuovo i file.
+Dentro la stessa sessione la lista non viene riletta a ogni cambio di pagina (sarebbe inutilmente
+lento su modpack grandi): se modifichi la cartella **mentre** l'app è aperta, usa **Refresh**.
+
+> Mentre la scansione è in corso compare una **schermata di attesa** con un'animazione di caricamento:
+> l'app resta ferma di proposito, perché cambiare progetto o pagina a metà lettura lascerebbe dati
+> incoerenti. Sui modpack piccoli (o quando i dati sono già in cache) è così rapida che non la vedi.
+
+> Quando l'elenco cambia, in alto a destra compare un avviso con quante mod sono state aggiunte,
+> rimosse o aggiornate, e la barra di salvataggio ti ricorda di salvare il progetto. Se sul disco non
+> è cambiato niente, non compare nulla.
+
+Lo stesso vale per la lista dei **datapack**.
 
 ## La tabella delle mod
 

@@ -112,6 +112,10 @@
     "description": "Descrizione",
     "ok": "OK"
   },
+  "modsSync": {
+    "modsUpdated": "Lista mod allineata alla cartella: {added} aggiunte, {removed} rimosse, {changed} aggiornate.",
+    "datapacksUpdated": "Lista datapack allineata alla cartella: {added} aggiunti, {removed} rimossi, {changed} aggiornati."
+  },
   "keybinds": {
     "editLabel": "Modifica {label}",
     "modsTitle": "Mod",
@@ -326,5 +330,15 @@
     "buttonContinue": "Continua",
     "buttonSave": "Salva",
     "buttonOk": "Ok"
+  },
+  "busy": {
+    "pleaseWait": "Attendi — durante questa operazione l'app non è interattiva.",
+    "otherTasks": "+{count} altre operazioni in corso",
+    "scanningMods": "Scansione delle mod…",
+    "scanningDatapacks": "Scansione dei datapack…",
+    "resolvingKeybinds": "Lettura delle keybind dalle mod…",
+    "exportingKeybinds": "Esportazione delle keybind…",
+    "updatingManifests": "Download delle versioni di Minecraft e dei modloader…",
+    "readingFileTree": "Lettura dell'albero dei file…"
   }
 }

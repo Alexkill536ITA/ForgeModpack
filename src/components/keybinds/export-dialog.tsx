@@ -25,6 +25,7 @@ import { Button } from "../ui/button"
 import { Label } from "../ui/label"
 import { project, toastStyles } from "../../model/models"
 import { EXPORTERS, getExporter, ExportContext } from "../../lib/keybind-export"
+import { useBusy } from "../../lib/use-busy"
 import { useTranslation } from "@/src/i18n/i18n-provider"
 
 // Rasterizza un markup SVG in byte PNG usando un canvas (nel webview). `scale`
@@ -73,6 +74,9 @@ export function ExportDialog({
   const [mapSel, setMapSel] = useState<string>(String(defaultMapIndex))
   const [dest, setDest] = useState<"workpath" | "choose">("workpath")
   const [busy, setBusy] = useState(false)
+  // Overlay bloccante: generare gli HTML/PNG di più mappe non è istantaneo.
+  // (`runBusy` per non confondersi con lo stato `busy` del bottone.)
+  const runBusy = useBusy()
 
   const exporter = getExporter(exporterId)
   const mapMode = exporter?.maps ?? "single"
@@ -128,13 +132,17 @@ export function ExportDialog({
         }
         const warnings: string[] = []
         let written = 0
-        for (const map of maps) {
-          const res = await exporter.build(map, ctx)
-          const target = targetDir ? await join(targetDir, await basename(res.suggestedPath)) : res.suggestedPath
-          await writeResult(target, res)
-          warnings.push(...res.warnings)
-          written++
-        }
+        await runBusy(t("busy.exportingKeybinds"), async (setMessage) => {
+          for (const map of maps) {
+            // Il dettaglio dice quale mappa è in lavorazione.
+            setMessage(t("busy.exportingKeybinds"), map.name)
+            const res = await exporter.build(map, ctx)
+            const target = targetDir ? await join(targetDir, await basename(res.suggestedPath)) : res.suggestedPath
+            await writeResult(target, res)
+            warnings.push(...res.warnings)
+            written++
+          }
+        })
         toast.success(t("keybindIo.exportSuccessMulti", { count: written }), {
           style: toastStyles.success,
         })
@@ -144,10 +152,11 @@ export function ExportDialog({
       }
 
       // --- File singolo: tutte le mappe in uno (all-in-one) o una sola mappa ---
-      const res =
+      const res = await runBusy(t("busy.exportingKeybinds"), () =>
         mapMode === "all-in-one" && exporter.buildAll
-          ? await exporter.buildAll(maps, ctx)
-          : await exporter.build(maps[Number(effectiveSel)], ctx)
+          ? exporter.buildAll(maps, ctx)
+          : exporter.build(maps[Number(effectiveSel)], ctx)
+      )
 
       let target = res.suggestedPath
       if (dest === "choose") {
@@ -159,7 +168,9 @@ export function ExportDialog({
         target = chosen
       }
 
-      await writeResult(target, res)
+      await runBusy(t("busy.exportingKeybinds"), () => writeResult(target, res), {
+        detail: target,
+      })
       const name = await basename(target)
       toast.success(t("keybindIo.exportSuccess", { count: res.writtenLines, name }), {
         style: toastStyles.success,

@@ -16,6 +16,7 @@ import { cn } from "../lib/utils"
 import { useAppDispatch, useAppSelector } from "../redux/hooks"
 import { openDocument } from "../redux/documents-slice"
 import { ScrollArea, ScrollBar } from "./ui/scroll-area"
+import { useBusy } from "../lib/use-busy"
 import { useTranslation } from "@/src/i18n/i18n-provider"
 
 // Cartelle del modpack mostrate nell'albero (lette dalla workpath).
@@ -117,6 +118,8 @@ export function NavFiles() {
 
   const [roots, setRoots] = useState<FileNode[]>([])
   const [loading, setLoading] = useState(false)
+  // `read_dir_tree` è ricorsivo: su config/kubejs grandi vale l'overlay.
+  const busy = useBusy()
 
   const loadTree = useCallback(async () => {
     if (!workpath) {
@@ -125,21 +128,25 @@ export function NavFiles() {
     }
     setLoading(true)
     try {
-      const found: FileNode[] = []
-      for (const folder of ROOT_FOLDERS) {
-        const dir = await join(workpath, folder)
-        try {
-          const children = await invoke<FileNode[]>("read_dir_tree", { dir })
-          found.push({ name: folder, path: dir, isDir: true, children })
-        } catch {
-          // cartella inesistente: la ignoriamo
+      const found = await busy(t("busy.readingFileTree"), async (setMessage) => {
+        const nodes: FileNode[] = []
+        for (const folder of ROOT_FOLDERS) {
+          const dir = await join(workpath, folder)
+          setMessage(t("busy.readingFileTree"), dir)
+          try {
+            const children = await invoke<FileNode[]>("read_dir_tree", { dir })
+            nodes.push({ name: folder, path: dir, isDir: true, children })
+          } catch {
+            // cartella inesistente: la ignoriamo
+          }
         }
-      }
+        return nodes
+      })
       setRoots(found)
     } finally {
       setLoading(false)
     }
-  }, [workpath])
+  }, [workpath, busy, t])
 
   // Create/rename/delete aggiornano `roots` direttamente e in modo sincrono:
   // l'UI riflette subito il cambiamento fatto su disco, senza dipendere da

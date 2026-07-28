@@ -32,11 +32,12 @@ import {
   ImportIssueReason,
 } from "../../lib/keybind-import"
 import { resolveKeybindLabels } from "../../lib/keybind-cache"
-import { getModsScanCached } from "../../lib/mods-scan"
+import { getModsScanForLoad } from "../../lib/mods-sync"
 import { resolveScanHint } from "../../lib/forge-spec"
-import { useAppDispatch } from "../../redux/hooks"
+import { useAppDispatch, useAppSelector } from "../../redux/hooks"
 import { updateProject } from "../../redux/project-slice"
 import { setKeybindActions } from "../../redux/keybind-actions-slice"
+import { useBusy } from "../../lib/use-busy"
 import { useTranslation } from "@/src/i18n/i18n-provider"
 
 // Estrae tutte le chiavi di binding (actionKey) da un keybindprofiles.json, per
@@ -77,9 +78,13 @@ export function ImportDialog({
 }) {
   const dispatch = useAppDispatch()
   const { t } = useTranslation()
+  const loadId = useAppSelector((s) => s.project.loadId)
   const [importerId, setImporterId] = useState(IMPORTERS[0]?.id ?? "")
   const [source, setSource] = useState<"workpath" | "choose">("workpath")
   const [busy, setBusy] = useState(false)
+  // Overlay bloccante: l'import apre tutti i jar (scansione + risoluzione mirata
+  // delle chiavi). (`runBusy` per non confondersi con lo stato del bottone.)
+  const runBusy = useBusy()
 
   const importer = getImporter(importerId)
 
@@ -114,7 +119,11 @@ export function ImportDialog({
       // Hint di versione: seleziona il formato di metadati/lang atteso (Forge
       // legacy vs moderno) sia per la scansione sia per la risoluzione mirata.
       const hint = await resolveScanHint(project)
-      const scanned = await getModsScanCached(workpath, false, hint)
+      const scanned = await runBusy(
+        t("busy.scanningMods"),
+        () => getModsScanForLoad(workpath, loadId, hint),
+        { detail: workpath }
+      )
       // Mod installate = modId principali + i loro `provides` (alias). Così un
       // modId emulato conta come installato: es. EMI dichiara provides "jei",
       // quindi i binding key.jei.* vengono attribuiti a EMI invece di scartati.
@@ -147,7 +156,10 @@ export function ImportDialog({
       const wantedKeys = collectActionKeys(content)
       const resolvedByKey: Record<string, { modId: string; label: string }> = {}
       try {
-        for (const r of await resolveKeybindLabels(workpath, wantedKeys, hint)) {
+        const resolved = await runBusy(t("busy.resolvingKeybinds"), () =>
+          resolveKeybindLabels(workpath, wantedKeys, hint)
+        )
+        for (const r of resolved) {
           resolvedByKey[r.key] = { modId: r.modId, label: r.label }
         }
       } catch (err) {

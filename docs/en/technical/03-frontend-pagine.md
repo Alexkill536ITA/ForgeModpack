@@ -23,6 +23,13 @@ graph TD
   (`assetes`, `notes`, `mods`, `datapacks`, `keybindMaps`, `keybindCategories`, `keybindTags`, `jvm`)
   for backward compatibility → `loadProject`.
 
+> ⚠️ **Project-switch gotcha**: `ProjectGate` always renders the **same** child component, so
+> switching from one project to another makes React **reuse the instance** and the page's local state
+> survives — lists, filters, data scanned in the previous session. Pages holding project-derived state
+> therefore pass a `key` tied to the project identity (`${loadId}::${workpath}`) to force a remount:
+> see [`listmods/page.tsx`](../../../src/app/listmods/page.tsx) and
+> [`keybinds/page.tsx`](../../../src/app/keybinds/page.tsx).
+
 ## The pages
 
 ### `/` — Home / Dashboard ([`page.tsx`](../../../src/app/page.tsx))
@@ -148,3 +155,33 @@ stateDiagram-v2
     Saved --> Unsaved: updateProject
     Unsaved --> Saved: markSaved (SaveBar / File menu)
 ```
+
+## Global loading overlay: `BusyOverlay`
+
+Operations that open every jar (mod/keybind scan, import), write several files (HTML/PNG export) or hit
+the network (manifest refresh) **effectively block interaction**: while they run the user must not be
+able to switch project or page, or the result would be applied to a state that no longer exists.
+
+[`busy-overlay.tsx`](../../../src/components/busy-overlay.tsx) is mounted once in the layout (outside
+`SidebarProvider`, `z-[100]` to sit above shadcn dialogs) and reads the runtime
+[`busy`](./04-state-redux.md) slice. It is never dispatched by hand: use the
+[`useBusy`](../../../src/lib/use-busy.ts) hook, which opens the task and closes it in `finally`.
+
+```ts
+const busy = useBusy()
+const mods = await busy(t("busy.scanningMods"), () => getModsScanForLoad(workpath, loadId, hint),
+  { detail: workpath })
+// staged operations: the callback receives setMessage(message, detail)
+```
+
+| Detail | Behaviour |
+|---|---|
+| Appearance | delayed by **250 ms**: within the same project opening scans answer from cache in a few ms, and without the threshold the overlay would flicker on every navigation |
+| Concurrent tasks | allowed (e.g. mods + datapacks): shows the first and counts the others; the overlay stays until the last one ends |
+| Dismissal | always in `finally`, so also on error or cancellation |
+| System dialogs | the wrap starts **after** the file/folder choice, so the overlay never covers the dialog |
+
+Covered spots: sync on project opening (`ModsSync`), mod and datapack scan in List Mods (manual refresh
+included), keybind scan, keybind import and export, manifest refresh on the dashboard, file tree reading
+in the sidebar. The existing local spinners (refresh icon, disabled buttons) stay: they tell *which*
+command is running.

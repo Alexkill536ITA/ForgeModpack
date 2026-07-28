@@ -48,6 +48,10 @@ graph TD
    non espone le sue azioni, puoi scrivere l'azione a mano.
 4. Conferma.
 
+> In cima all'elenco compaiono le azioni **lette direttamente dal codice della mod** (quindi sicuramente
+> comandi da tastiera); più in basso quelle riconosciute dal solo nome della traduzione, dove può
+> capitare qualche voce che in realtà non è un comando.
+
 > Puoi salvare l'assegnazione solo nella mappa corrente, oppure applicarla a **tutte le mappe** in una
 > volta.
 

@@ -11,6 +11,10 @@ import type { RootState } from './store'
 export interface scannedKeybindAction {
     key: string   // chiave di traduzione, es. "key.jei.toggleOverlay"
     label: string // testo leggibile (fallback: la chiave)
+    // "bytecode" = dichiarata dalle classi che usano l'API keybind Forge/NeoForge
+    // (certa), "lang" = riconosciuta dal nome della chiave (euristica). Assente
+    // nelle cache scritte prima dello scan del bytecode.
+    source?: "bytecode" | "lang"
 }
 
 // Vista "per mod" delle keybind, derivata dalla scansione unificata (mods-scan.ts

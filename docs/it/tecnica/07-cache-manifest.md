@@ -26,7 +26,7 @@ graph LR
 |--------|-----------|-----|
 | `minecraft_manifest` | Manifest versioni MC | 24h |
 | `modloader_manifest` | Manifest Forge/NeoForge/Fabric/Quilt | 24h |
-| `mods:v3:<mc>:<forge>:<workpath>` | Scansione mod (metadati + keybind + diagnostica) | nessuno (refresh manuale) |
+| `mods:v4:<mc>:<forge>:<workpath>` | Scansione mod (metadati + keybind + diagnostica) | nessuno (refresh manuale) |
 | `datapacks:v1:<dir>` | Scansione datapack | nessuno (refresh manuale) |
 
 ## Manifest remoti

@@ -5,19 +5,31 @@ The **List Mods** section (in the sidebar) shows what your modpack actually cont
 
 ## How scanning works
 
-The first time you open the section, the app **scans** the `mods` folder and reads the name, version,
-authors, modloader and dependencies from each jar. The result is remembered, so it's instant the next
-times.
+**Every time you open a project** the app re-reads the `mods` folder and updates the list: name,
+version, authors, modloader and dependencies of every jar. This happens for already-saved projects
+too, so if you **added, updated or deleted** mods between sessions the list realigns by itself — mods
+that are gone disappear from the list.
 
 ```mermaid
 graph LR
-    Scan["Open List Mods"] --> Read["Reads the .jar files in mods/"]
-    Read --> Table["Mods table"]
-    Table --> Refresh["Refresh button<br/>to re-scan"]
+    Open["Open the project"] --> Read["Re-reads the .jar files in mods/"]
+    Read --> Table["Updated mods table"]
+    Table --> Nav["Navigating between pages:<br/>no re-read (instant)"]
+    Nav --> Refresh["Refresh button:<br/>re-read whenever you want"]
 ```
 
-> Use **Refresh** when you add, update or remove mods from the folder: it updates the list by reading
-> the files again.
+Within the same session the list is not re-read on every page change (that would be needlessly slow
+on big modpacks): if you change the folder **while** the app is open, use **Refresh**.
+
+> While the scan runs a **waiting screen** with a loading animation appears: the app stays put on
+> purpose, because switching project or page halfway through the read would leave inconsistent data. On
+> small modpacks (or when the data is already cached) it is so quick you won't see it.
+
+> When the list changes, a notice appears in the top-right corner telling you how many mods were
+> added, removed or updated, and the save bar reminds you to save the project. If nothing changed on
+> disk, nothing shows up.
+
+The same applies to the **datapacks** list.
 
 ## The mods table
 

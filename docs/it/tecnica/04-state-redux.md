@@ -1,6 +1,6 @@
 # 04 — State globale (Redux)
 
-Lo store ([`store.ts`](../../../src/redux/store.ts)) combina cinque reducer. L'accesso avviene **sempre**
+Lo store ([`store.ts`](../../../src/redux/store.ts)) combina sei reducer. L'accesso avviene **sempre**
 tramite gli hook tipizzati `useAppSelector`/`useAppDispatch` ([`hooks.ts`](../../../src/redux/hooks.ts)),
 mai `useSelector` grezzo. Il `ReduxProvider` è montato in `layout.tsx`.
 
@@ -11,6 +11,7 @@ graph TB
     Store --> ML["modLoaderManifest"]
     Store --> D["documents"]
     Store --> K["keybindActions"]
+    Store --> B["busy"]
 ```
 
 | Slice | File | Persistito in project.json? | Ruolo |
@@ -20,10 +21,11 @@ graph TB
 | `modLoaderManifest` | [metadata-ml-slice.ts](../../../src/redux/metadata-ml-slice.ts) | no (cache SQLite) | Versioni modloader |
 | `documents` | [documents-slice.ts](../../../src/redux/documents-slice.ts) | no | File aperto nell'editor |
 | `keybindActions` | [keybind-actions-slice.ts](../../../src/redux/keybind-actions-slice.ts) | no (runtime) | Azioni keybind per mod |
+| `busy` | [busy-slice.ts](../../../src/redux/busy-slice.ts) | no (runtime) | Operazioni pesanti in corso → overlay bloccante |
 
 ## `project`
 
-**State**: `{ project: project | null; unsaved: boolean }`. Initial `{ null, false }`.
+**State**: `{ project: project | null; unsaved: boolean; loadId: number }`. Initial `{ null, false, 0 }`.
 
 ```mermaid
 stateDiagram-v2
@@ -36,12 +38,16 @@ stateDiagram-v2
 
 | Action | Effetto |
 |--------|---------|
-| `loadProject(project \| null)` | Imposta `project`, `unsaved=false` (create/open/close: stato pulito) |
+| `loadProject(project \| null)` | Imposta `project`, `unsaved=false` (create/open/close: stato pulito), **`loadId += 1`** |
 | `updateProject(project)` | Imposta `project`, `unsaved=true` (qualsiasi modifica → attiva SaveBar) |
 | `markSaved()` | `unsaved=false` (dopo scrittura su file) |
 
 Selector: `selectProject`. **Regola d'oro**: le pagine editano il project solo con `updateProject`;
 la scrittura su disco + `markSaved` è centralizzata in SaveBar / menu File.
+
+`loadId` è un contatore delle **aperture** di progetto (non persistito): chi deriva dati dal disco
+(scansione mod/datapack) lo osserva per rileggere i file a ogni apertura invece di fidarsi della
+cache. Vedi [06 — Scansione](./06-scansione.md#sincronizzazione-con-il-disco).
 
 ## `documents`
 

@@ -10,6 +10,8 @@ import { AppSidebar } from "../components/app-sidebar";
 import { SiteHeader } from "../components/site-header";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { SaveBar } from "../components/save-bar";
+import { ModsSync } from "../components/mods-sync";
+import { BusyOverlay } from "../components/busy-overlay";
 import { Toaster } from "../components/ui/sonner";
 import ReduxProvider from "../redux/redux-provider";
 import { ConfirmProvider } from "../providers/confirm-dialog-provider";
@@ -37,6 +39,9 @@ export default function RootLayout({
                   } as React.CSSProperties
                 }
               >
+                {/* Ri-scansiona mod/datapack a ogni apertura di progetto,
+                    indipendentemente dalla pagina aperta. */}
+                <ModsSync />
                 <AppSidebar variant="inset" />
                 <SidebarInset>
                   <SiteHeader />
@@ -55,6 +60,9 @@ export default function RootLayout({
             </ConfirmProvider>
           </TooltipProvider>
             <Toaster />
+            {/* Overlay bloccante durante le operazioni pesanti: sopra tutto,
+                quindi fuori dal SidebarProvider. */}
+            <BusyOverlay />
           </I18nProvider>
         </ReduxProvider>
       </body>

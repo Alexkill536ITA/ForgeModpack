@@ -112,6 +112,10 @@
     "description": "Description",
     "ok": "OK"
   },
+  "modsSync": {
+    "modsUpdated": "Mod list synced with the folder: {added} added, {removed} removed, {changed} updated.",
+    "datapacksUpdated": "Datapack list synced with the folder: {added} added, {removed} removed, {changed} updated."
+  },
   "keybinds": {
     "editLabel": "Edit {label}",
     "modsTitle": "Mods",
@@ -326,5 +330,15 @@
     "buttonContinue": "Continue",
     "buttonSave": "Save",
     "buttonOk": "Ok"
+  },
+  "busy": {
+    "pleaseWait": "Please wait — the app is not interactive during this operation.",
+    "otherTasks": "+{count} other operation(s) running",
+    "scanningMods": "Scanning mods…",
+    "scanningDatapacks": "Scanning datapacks…",
+    "resolvingKeybinds": "Reading keybinds from mods…",
+    "exportingKeybinds": "Exporting keybinds…",
+    "updatingManifests": "Downloading Minecraft and mod loader versions…",
+    "readingFileTree": "Reading the file tree…"
   }
 }

@@ -48,6 +48,10 @@ graph TD
    doesn't expose its actions, you can type the action by hand.
 4. Confirm.
 
+> The top of the list holds the actions **read directly from the mod's code** (so certainly keyboard
+> commands); further down are the ones recognized from the translation name alone, where the odd entry
+> may not actually be a command.
+
 > You can save the assignment to the current map only, or apply it to **all maps** at once.
 
 ## Multiple actions on the same key

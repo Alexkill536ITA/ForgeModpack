@@ -23,6 +23,14 @@ graph TD
   (`assetes`, `notes`, `mods`, `datapacks`, `keybindMaps`, `keybindCategories`, `keybindTags`, `jvm`)
   per retrocompatibilità → `loadProject`.
 
+> ⚠️ **Gotcha del cambio progetto**: `ProjectGate` rende sempre lo **stesso** componente figlio,
+> quindi passando da un progetto all'altro React **riusa l'istanza** e lo stato locale della pagina
+> sopravvive — liste, filtri, dati scansionati della sessione precedente. Le pagine che tengono stato
+> derivato dal progetto passano quindi una `key` legata all'identità del progetto
+> (`${loadId}::${workpath}`) per forzare il remount: vedi
+> [`listmods/page.tsx`](../../../src/app/listmods/page.tsx) e
+> [`keybinds/page.tsx`](../../../src/app/keybinds/page.tsx).
+
 ## Le pagine
 
 ### `/` — Home / Dashboard ([`page.tsx`](../../../src/app/page.tsx))
@@ -148,3 +156,34 @@ stateDiagram-v2
     Saved --> Unsaved: updateProject
     Unsaved --> Saved: markSaved (SaveBar / menu File)
 ```
+
+## Overlay di caricamento globale: `BusyOverlay`
+
+Le operazioni che aprono tutti i jar (scansione mod/keybind, import), scrivono più file (export
+HTML/PNG) o vanno in rete (refresh dei manifest) **bloccano di fatto l'interazione**: mentre girano
+l'utente non deve poter cambiare progetto o pagina, perché il risultato verrebbe applicato a uno stato
+che non esiste più.
+
+[`busy-overlay.tsx`](../../../src/components/busy-overlay.tsx) è montato una volta nel layout (fuori
+dal `SidebarProvider`, `z-[100]` per stare sopra i dialog di shadcn) e legge lo slice runtime
+[`busy`](./04-state-redux.md). Non si dispatcha a mano: si usa l'hook
+[`useBusy`](../../../src/lib/use-busy.ts), che apre il task e lo chiude in `finally`.
+
+```ts
+const busy = useBusy()
+const mods = await busy(t("busy.scanningMods"), () => getModsScanForLoad(workpath, loadId, hint),
+  { detail: workpath })
+// operazioni a fasi: il callback riceve setMessage(messaggio, dettaglio)
+```
+
+| Dettaglio | Comportamento |
+|---|---|
+| Comparsa | ritardata di **250 ms**: dentro la stessa apertura le scansioni rispondono dalla cache in pochi ms, e senza soglia l'overlay lampeggerebbe a ogni navigazione |
+| Task concorrenti | ammessi (es. mod + datapack): mostra il primo e conta gli altri; l'overlay resta finché l'ultimo non finisce |
+| Chiusura | sempre in `finally`, quindi anche su errore o annullamento |
+| Dialog di sistema | il wrap parte **dopo** la scelta di file/cartella, così l'overlay non copre il dialog |
+
+Punti coperti: sincronizzazione all'apertura (`ModsSync`), scansione mod e datapack in List Mods
+(anche il refresh manuale), scansione keybind, import e export keybind, refresh dei manifest nella
+dashboard, lettura dell'albero dei file nella sidebar. Gli spinner locali già presenti (icona del
+refresh, bottoni disabilitati) restano: indicano *quale* comando è in corso.

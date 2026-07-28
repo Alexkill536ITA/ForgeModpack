@@ -1,6 +1,8 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+mod class_scan;
 mod files;
 mod forge_spec;
+mod keybind_scan;
 mod mods;
 
 use tauri_plugin_sql::{Migration, MigrationKind};

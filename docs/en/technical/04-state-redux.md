@@ -1,6 +1,6 @@
 # 04 — Global state (Redux)
 
-The store ([`store.ts`](../../../src/redux/store.ts)) combines five reducers. Access always happens
+The store ([`store.ts`](../../../src/redux/store.ts)) combines six reducers. Access always happens
 through the typed hooks `useAppSelector`/`useAppDispatch` ([`hooks.ts`](../../../src/redux/hooks.ts)),
 never raw `useSelector`. The `ReduxProvider` is mounted in `layout.tsx`.
 
@@ -11,6 +11,7 @@ graph TB
     Store --> ML["modLoaderManifest"]
     Store --> D["documents"]
     Store --> K["keybindActions"]
+    Store --> B["busy"]
 ```
 
 | Slice | File | Persisted in project.json? | Role |
@@ -20,10 +21,11 @@ graph TB
 | `modLoaderManifest` | [metadata-ml-slice.ts](../../../src/redux/metadata-ml-slice.ts) | no (SQLite cache) | Modloader versions |
 | `documents` | [documents-slice.ts](../../../src/redux/documents-slice.ts) | no | File open in the editor |
 | `keybindActions` | [keybind-actions-slice.ts](../../../src/redux/keybind-actions-slice.ts) | no (runtime) | Keybind actions per mod |
+| `busy` | [busy-slice.ts](../../../src/redux/busy-slice.ts) | no (runtime) | Heavy operations in progress → blocking overlay |
 
 ## `project`
 
-**State**: `{ project: project | null; unsaved: boolean }`. Initial `{ null, false }`.
+**State**: `{ project: project | null; unsaved: boolean; loadId: number }`. Initial `{ null, false, 0 }`.
 
 ```mermaid
 stateDiagram-v2
@@ -36,12 +38,16 @@ stateDiagram-v2
 
 | Action | Effect |
 |--------|---------|
-| `loadProject(project \| null)` | Sets `project`, `unsaved=false` (create/open/close: clean state) |
+| `loadProject(project \| null)` | Sets `project`, `unsaved=false` (create/open/close: clean state), **`loadId += 1`** |
 | `updateProject(project)` | Sets `project`, `unsaved=true` (any change → activates SaveBar) |
 | `markSaved()` | `unsaved=false` (after writing to file) |
 
 Selector: `selectProject`. **Golden rule**: pages edit the project only with `updateProject`;
 writing to disk + `markSaved` is centralized in SaveBar / File menu.
+
+`loadId` counts project **opens** (not persisted): whatever derives data from disk (mod/datapack
+scanning) watches it to re-read the files on every open instead of trusting the cache. See
+[06 — Scanning](./06-scansione.md#syncing-with-disk).
 
 ## `documents`
 

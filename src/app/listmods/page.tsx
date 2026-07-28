@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { RefreshCcwIcon, PackageIcon, CircleCheckIcon, CircleSlashIcon, CircleXIcon, SearchIcon, LayersIcon, TriangleAlertIcon } from "lucide-react"
-import { join } from "@tauri-apps/api/path"
+import { toast } from "sonner"
 
 import { useTranslation } from "@/src/i18n/i18n-provider"
 import { ProjectGate } from "../../components/project-gate"
@@ -25,13 +25,25 @@ import {
   TableRow,
 } from "../../components/ui/table"
 import { cn } from "../../lib/utils"
-import { useAppDispatch } from "../../redux/hooks"
+import { useAppDispatch, useAppSelector } from "../../redux/hooks"
 import { updateProject } from "../../redux/project-slice"
 import { setByPath } from "../../lib/json-data"
-import { getModsScanCached, peekModsScanCache, scannedMod } from "../../lib/mods-scan"
+import { scannedMod } from "../../lib/mods-scan"
 import { resolveScanHint } from "../../lib/forge-spec"
-import { getDatapacksScanCached } from "../../lib/datapacks-scan"
-import { datapack, mod, modloaderTypes, project } from "../../model/models"
+import {
+  datapacksDir,
+  diffDatapacks,
+  diffMods,
+  getDatapacksScanForLoad,
+  getModsScanForLoad,
+  hasChanges,
+  refreshDatapacksScan,
+  refreshModsScan,
+  toProjectDatapacks,
+  toProjectMods,
+} from "../../lib/mods-sync"
+import { mod, modloaderTypes, project, toastStyles } from "../../model/models"
+import { useBusy } from "../../lib/use-busy"
 
 // modId "ambiente" forniti dal loader/runtime: sempre soddisfatti, non sono mod.
 const RUNTIME_DEPS = new Set([
@@ -158,6 +170,10 @@ function SummaryCard({
 function ModsList({ project }: { project: project }) {
   const dispatch = useAppDispatch()
   const { t } = useTranslation()
+  // Cambia a ogni apertura di progetto: fa scattare la rilettura dal disco.
+  const loadId = useAppSelector((s) => s.project.loadId)
+  // Overlay globale durante le scansioni (bloccano l'interazione).
+  const busy = useBusy()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
@@ -192,64 +208,61 @@ function ModsList({ project }: { project: project }) {
   const projectRef = useRef(project)
   projectRef.current = project
 
-  // Scansione UNIFICATA (metadati + keybind) via cache SQLite `mods:<workpath>`:
-  // salva i metadati in project.mods (preservando `active`); i keybind restano
-  // nella cache e alimentano la pagina Keybinds. `force` = refresh manuale.
-  const scan = useCallback(async (force = false) => {
+  // Scansione UNIFICATA (metadati + keybind), sempre allineata al disco: alla
+  // prima lettura di ogni APERTURA di progetto (`loadId`) i jar vengono riletti,
+  // anche se il progetto era già salvato con le mod dentro; dentro la stessa
+  // apertura si usa la cache SQLite, così navigare tra le pagine è istantaneo.
+  // `mode = "refresh"` (pulsante) forza sempre la rilettura.
+  // I keybind NON vengono copiati in project.mods (restano nella cache): il
+  // project.json resta leggero.
+  const scan = useCallback(async (mode: "open" | "refresh" = "open") => {
     setLoading(true)
     setError(null)
     try {
       // L'hint di versione seleziona il formato di metadati/lang atteso: i mod
       // Forge <= 1.12.2 usano mcmod.info + lang .lang, dal 1.13 mods.toml + JSON.
       const hint = await resolveScanHint(projectRef.current)
-      const scanned = await getModsScanCached(workpath, force, hint)
+      // Aprire i jar è pesante (metadati + bytecode + lang): overlay bloccante.
+      const scanned = await busy(
+        t("busy.scanningMods"),
+        () =>
+          mode === "refresh"
+            ? refreshModsScan(workpath, loadId, hint)
+            : getModsScanForLoad(workpath, loadId, hint),
+        { detail: workpath }
+      )
       applyDiagnostics(scanned)
 
       const current = projectRef.current
-      const prevActive = new Map(current.mods.map((m) => [m.filename, m.active]))
-
-      // I keybind NON vengono copiati in project.mods (restano nella cache): il
-      // project.json resta leggero.
-      const mapped: mod[] = scanned.map((s) => ({
-        active: prevActive.get(s.filename) ?? true,
-        filename: s.filename,
-        modId: s.modId,
-        name: s.name,
-        modloader: s.modloader as modloaderTypes,
-        version: s.version,
-        provides: s.provides,
-        description: s.description ?? undefined,
-        authors: s.authors,
-        dependencies: s.dependencies,
-      }))
-
-      dispatch(updateProject(setByPath(current, "mods", mapped)))
+      const mapped = toProjectMods(scanned, current.mods)
+      const diff = diffMods(current.mods, mapped)
+      // Aggiorna il project solo se il disco dice qualcosa di diverso: così il
+      // semplice aprire la pagina non fa comparire la SaveBar a vuoto.
+      if (hasChanges(diff)) {
+        dispatch(updateProject(setByPath(current, "mods", mapped)))
+        if (mode === "refresh") {
+          toast.info(t("modsSync.modsUpdated", { ...diff }), {
+            position: "top-right",
+            style: toastStyles.info,
+          })
+        }
+      }
     } catch (err) {
       console.error(err)
+      // Niente diagnostica "di riporto": meglio vuota che del progetto sbagliato.
+      setDiagnostics(new Map())
       setError(t("listmods.modsFolderNotFound"))
     } finally {
       setLoading(false)
     }
-  }, [workpath, dispatch, t, applyDiagnostics])
+  }, [workpath, loadId, dispatch, t, applyDiagnostics, busy])
 
-  // Scansione automatica solo la prima volta per ogni workpath e solo se i mod
-  // non sono già stati salvati nel progetto (così non si riscansiona di continuo).
-  // Se i mod ci sono già, si legge solo la cache per popolare la diagnostica.
-  const initialized = useRef<string | null>(null)
+  // Sincronizzazione a ogni apertura di progetto (e al montaggio della pagina):
+  // il wrapper "per apertura" evita di riaprire i jar a ogni navigazione.
   useEffect(() => {
     if (!showMods) return
-    if (initialized.current === workpath) return
-    initialized.current = workpath
-    void (async () => {
-      if (projectRef.current.mods.length === 0) {
-        await scan()
-        return
-      }
-      const hint = await resolveScanHint(projectRef.current)
-      const cached = await peekModsScanCache(workpath, hint)
-      if (cached) applyDiagnostics(cached)
-    })()
-  }, [workpath, scan, showMods, applyDiagnostics])
+    void scan()
+  }, [scan, showMods])
 
   function toggleActive(filename: string) {
     const current = projectRef.current
@@ -259,40 +272,47 @@ function ModsList({ project }: { project: project }) {
     dispatch(updateProject(setByPath(current, "mods", updated)))
   }
 
-  // Scansione datapack (cache SQLite `datapacks:<dir>`). La cartella è quella
-  // configurata nel project (path assoluto) o, se assente, <workpath>/datapacks.
-  const scanDatapacks = useCallback(async (force = false) => {
+  // Scansione datapack (cache SQLite `datapacks:<dir>`), con la stessa regola
+  // delle mod: rilettura dal disco a ogni apertura di progetto (o al cambio
+  // della cartella configurata), cache dentro la stessa apertura.
+  const datapacksPath = project.configs.datapacksPath
+  const scanDatapacks = useCallback(async (mode: "open" | "refresh" = "open") => {
     setDpLoading(true)
     setDpError(null)
     try {
-      const dir = projectRef.current.configs.datapacksPath?.trim() || (await join(workpath, "datapacks"))
-      const scanned = await getDatapacksScanCached(dir, force)
+      const dir = await datapacksDir(projectRef.current)
+      const scanned = await busy(
+        t("busy.scanningDatapacks"),
+        () =>
+          mode === "refresh"
+            ? refreshDatapacksScan(dir, loadId)
+            : getDatapacksScanForLoad(dir, loadId),
+        { detail: dir }
+      )
       const current = projectRef.current
-      const prevActive = new Map((current.datapacks ?? []).map((d) => [d.filename, d.active]))
-      const mapped: datapack[] = scanned.map((s) => ({
-        active: prevActive.get(s.filename) ?? true,
-        filename: s.filename,
-        name: s.name,
-        description: s.description ?? undefined,
-        packFormat: s.packFormat ?? undefined,
-      }))
-      dispatch(updateProject(setByPath(current, "datapacks", mapped)))
+      const mapped = toProjectDatapacks(scanned, current.datapacks ?? [])
+      const diff = diffDatapacks(current.datapacks ?? [], mapped)
+      if (hasChanges(diff)) {
+        dispatch(updateProject(setByPath(current, "datapacks", mapped)))
+        if (mode === "refresh") {
+          toast.info(t("modsSync.datapacksUpdated", { ...diff }), {
+            position: "top-right",
+            style: toastStyles.info,
+          })
+        }
+      }
     } catch (err) {
       console.error(err)
       setDpError(t("listmods.datapacksFolderNotFound"))
     } finally {
       setDpLoading(false)
     }
-  }, [workpath, dispatch, t])
+  }, [workpath, loadId, datapacksPath, dispatch, t, busy])
 
-  const dpInitialized = useRef<string | null>(null)
   useEffect(() => {
     if (!showDatapacks) return
-    const key = `${workpath}::${project.configs.datapacksPath ?? ""}`
-    if (dpInitialized.current === key) return
-    dpInitialized.current = key
-    if ((projectRef.current.datapacks?.length ?? 0) === 0) void scanDatapacks()
-  }, [workpath, project.configs.datapacksPath, scanDatapacks, showDatapacks])
+    void scanDatapacks()
+  }, [scanDatapacks, showDatapacks])
 
   function toggleDatapackActive(filename: string) {
     const current = projectRef.current
@@ -387,7 +407,7 @@ function ModsList({ project }: { project: project }) {
               </span>
             )}
           </CardTitle>
-          <Button variant="ghost" size="icon" onClick={() => void scan(true)} disabled={loading} aria-label={t("listmods.refresh")}>
+          <Button variant="ghost" size="icon" onClick={() => void scan("refresh")} disabled={loading} aria-label={t("listmods.refresh")}>
             <RefreshCcwIcon className={cn(loading && "ease-in-out animate-spin")} />
           </Button>
         </CardHeader>
@@ -569,7 +589,7 @@ function ModsList({ project }: { project: project }) {
                   </span>
                 )}
               </CardTitle>
-              <Button variant="ghost" size="icon" onClick={() => void scanDatapacks(true)} disabled={dpLoading} aria-label={t("listmods.refreshDatapacks")}>
+              <Button variant="ghost" size="icon" onClick={() => void scanDatapacks("refresh")} disabled={dpLoading} aria-label={t("listmods.refreshDatapacks")}>
                 <RefreshCcwIcon className={cn(dpLoading && "ease-in-out animate-spin")} />
               </Button>
             </CardHeader>
@@ -647,5 +667,12 @@ function ModsList({ project }: { project: project }) {
 }
 
 export default function ListModsPage() {
-  return <ProjectGate>{(project) => <ModsList project={project} />}</ProjectGate>
+  // `key` legato all'identità del progetto (apertura + cartella): cambiare
+  // progetto RIMONTA la lista, azzerando lo stato locale (diagnostica, ricerca,
+  // errori). Senza questo React riusa l'istanza e resta dentro roba della
+  // sessione precedente, perché ProjectGate rende sempre lo stesso componente.
+  const projectKey = useAppSelector(
+    (s) => `${s.project.loadId}::${s.project.project?.configs.workpath ?? ""}`
+  )
+  return <ProjectGate>{(project) => <ModsList key={projectKey} project={project} />}</ProjectGate>
 }

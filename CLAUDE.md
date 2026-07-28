@@ -56,7 +56,8 @@ costringendo a generare una versione nuova prima di ogni build.
   Le pagine sono `"use client"`; immagini `unoptimized`.
 - **Redux Toolkit** per lo state globale ([`src/redux`](src/redux)): slice `project`,
   `minecraftManifest`, `modLoaderManifest`, `documents` (file aperto nell'editor),
-  `keybindActions` (azioni keybind scansionate dai jar, runtime). Accesso via `useAppSelector`/`useAppDispatch`
+  `keybindActions` (azioni keybind scansionate dai jar, runtime), `busy` (operazioni pesanti in corso →
+  overlay bloccante, runtime). Accesso via `useAppSelector`/`useAppDispatch`
   ([`hooks.ts`](src/redux/hooks.ts)), mai `useSelector` grezzo.
 - **shadcn/ui** ([`src/components/ui`](src/components/ui)) + **Tailwind v4** (config in
   [`globals.css`](src/app/globals.css), tema `dark` forzato nel layout). Non modificare a
@@ -100,9 +101,20 @@ costringendo a generare una versione nuova prima di ogni build.
   default, categoria "Vanilla", label vanilla, tipi di asset) restano in **inglese canonico**: si
   localizza solo la visualizzazione. Dettagli in [`docs/it/tecnica/14-i18n.md`](docs/it/tecnica/14-i18n.md).
 - **Layout**: [`layout.tsx`](src/app/layout.tsx) monta `ReduxProvider`, sidebar
-  ([`app-sidebar.tsx`](src/components/app-sidebar.tsx)), header, la `<SaveBar />` globale e il
-  `<Toaster />` di sonner (necessario perché i `toast(...)` siano visibili — va montato una sola
-  volta qui).
+  ([`app-sidebar.tsx`](src/components/app-sidebar.tsx)), header, la `<SaveBar />` globale, il
+  `<BusyOverlay />` e il `<Toaster />` di sonner (necessario perché i `toast(...)` siano visibili — va
+  montato una sola volta qui).
+- **Overlay di caricamento (operazioni bloccanti)**: le operazioni pesanti (apertura di tutti i jar per
+  scansione/import, export multi-file, refresh dei manifest, lettura dell'albero dei file) devono
+  mostrare l'overlay globale [`busy-overlay.tsx`](src/components/busy-overlay.tsx), che copre lo
+  schermo e **impedisce l'interazione** (l'utente non deve cambiare progetto o pagina a metà lavoro).
+  Non si dispatcha a mano lo slice [`busy-slice.ts`](src/redux/busy-slice.ts): si usa l'hook
+  [`use-busy.ts`](src/lib/use-busy.ts) — `await busy(t("busy.x"), () => lavoro(), { detail })`, che
+  chiude il task in `finally` (anche su errore). Il callback riceve `setMessage` per le operazioni a
+  fasi. La comparsa è **ritardata di 250 ms** (dentro la stessa apertura le scansioni rispondono dalla
+  cache: senza soglia l'overlay lampeggerebbe a ogni navigazione) e i task concorrenti sono ammessi
+  (mostra il primo, conta gli altri). Il wrap va messo **dopo** i dialog di scelta file/cartella, così
+  l'overlay non li copre. Gli spinner locali restano: dicono *quale* comando è in corso.
 - **Salvataggio globale**: lo stato `unsaved` vive in Redux ([`project-slice.ts`](src/redux/project-slice.ts)):
   `loadProject` (create/open → unsaved=false), `updateProject` (qualsiasi modifica → unsaved=true),
   `markSaved` (dopo la scrittura su file). [`save-bar.tsx`](src/components/save-bar.tsx) mostra
@@ -116,11 +128,17 @@ costringendo a generare una versione nuova prima di ogni build.
   rende i figli passando il progetto non-null via **render prop**
   (`<ProjectGate>{(project) => ...}</ProjectGate>`). Ogni pagina che richiede un progetto
   va avvolta in questo componente — è la fonte unica del blocco "No project selected".
+  **Gotcha del cambio progetto**: `ProjectGate` rende sempre lo STESSO componente figlio, quindi
+  passando da un progetto all'altro React riusa l'istanza e lo **stato locale della pagina
+  sopravvive** (liste, filtri, dati scansionati della sessione precedente). Le pagine con stato
+  derivato dal progetto passano una `key` legata all'identità del progetto
+  (`${loadId}::${workpath}`) per forzare il remount — vedi `listmods/page.tsx` e `keybinds/page.tsx`.
 - **Backend Rust**: [`src-tauri/src/lib.rs`](src-tauri/src/lib.rs) registra i plugin
   (fs, dialog, http, sql, opener), le migration SQLite e i comandi. Scritture SQL richiedono
   `sql:allow-execute` nelle capabilities.
 - **Profili di formato Forge per versione (Rust)**: [`forge_spec.rs`](src-tauri/src/forge_spec.rs)
-  contiene **la sola** tabella versione MC → formato atteso: `forge-legacy` (≤1.12.2: `mcmod.info`
+  contiene **le sole** tabelle versione MC → formato/API attesi (formato dei metadati e API keybind,
+  vedi "Riconoscimento keybind"): `forge-legacy` (≤1.12.2: `mcmod.info`
   + lang `en_US.lang` properties), `forge-fml` (1.13–1.20.4: `mods.toml` + `mandatory=` + lang JSON),
   `forge-fml-modern` (≥1.20.5: `mods.toml` + `type=` + `provides`), `detect-only` (senza hint).
   `spec_for(mc, forge)` è puro e testato. **Il rilevamento primario resta il contenuto del jar**: il
@@ -154,8 +172,12 @@ costringendo a generare una versione nuova prima di ogni build.
   (formato non allineato alla versione MC, TOML rotto, nessun lang, placeholder di versione
   irrisolto…) — mostrati in List Mods, **non** persistiti in `project.json`.
   I comandi applicativi non richiedono permessi capability (a differenza dei comandi dei plugin).
-  La scansione usa `std::fs`, non plugin-fs. `cargo test --lib` copre parser puri + un end-to-end
-  che costruisce jar reali (legacy e moderno) in temp.
+  La scansione usa `std::fs`, non plugin-fs, e legge i jar su **più thread** (`std::thread::scope`,
+  fino a 8: la lettura del bytecode per le keybind aggiunge decompressione); l'ordine finale è sempre
+  alfabetico, quindi non dipende dallo scheduling. `read_entry` decodifica UTF-8 e, se i byte non
+  sono validi, **ISO-8859-1** (i `.lang`/`mcmod.info` legacy lo sono spesso: in UTF-8 stretto il file
+  intero verrebbe scartato) rimuovendo anche il BOM. `cargo test --lib` copre parser puri + end-to-end
+  che costruiscono jar reali (legacy, moderno, con bytecode) in temp.
 - **Scansione datapack (Rust)**: `mods.rs` espone anche `scan_datapacks(dir)` che legge una cartella
   e per ogni `.zip`/cartella con `pack.mcmeta` estrae `ScannedDatapack[]` (filename, name, description
   appiattita dal text component, `packFormat`). Cache SQLite `datapacks:<dir>` in
@@ -167,20 +189,39 @@ costringendo a generare una versione nuova prima di ogni build.
   `<workpath>/datapacks`). **List Mods** ([`listmods/page.tsx`](src/app/listmods/page.tsx)) mostra:
   solo la tabella datapack se loader=datapack puro, mods+datapack se ibrido, solo mods se loader
   classico. I datapack sono persistiti in `project.datapacks` (con `active` per filename, come le mod).
-- **Riconoscimento keybind (Rust)**: `collect_lang_docs` + `keybinds_from_langs` (in `scan_mods`)
-  leggono le chiavi keybind dai file di lingua inglese in **entrambi i formati** —
-  `assets/*/lang/en_us.json` (JSON piatto) e `assets/*/lang/en_US.lang` (properties `chiave=testo`,
-  Forge ≤1.12.2) — con match del path **case-insensitive** e priorità al formato del profilo
-  (`{key, label}`, dedup). Se un jar non ha alcun lang inglese, la scansione lo segnala nei
-  `warnings` (keybind non rilevabili). Il riconoscimento (`is_keybind_key`)
-  NON si limita a `key.*`: i mod usano prefissi molto diversi (`key.jei.x`, `cos.key.x`,
-  `create.keyinfo.x`, `iris.keybind.x`, `keybind.simplyjetpacks.x`, `mod.chiselsandbits.keys.x`),
-  quindi una chiave è keybind se ha un **segmento marcatore**
-  (`key`/`keys`/`keybind`/`keybinds`/`keyinfo`/`keymapping`), escludendo i titoli di categoria
-  (`.categories.`). I lang vengono letti sia top-level sia dai **JarJar annidati**
-  (`collect_lang_docs`, un livello): es. Create bundla Ponder (`key.ponder.ponder`). I mod che
-  nominano le KeyMapping senza alcun marcatore (es. `config.jsg.*`, `placebo.toggleTrails`) non sono
-  distinguibili dalle altre traduzioni e NON sono coperti da questo scan generico.
+- **Riconoscimento keybind (Rust)**: DUE fonti incrociate nella stessa apertura del jar, ogni
+  `KeybindAction` porta un campo **`source`** (`"bytecode"` = certa, `"lang"` = euristica).
+  1. **Bytecode** ([`keybind_scan.rs`](src-tauri/src/keybind_scan.rs) +
+     [`class_scan.rs`](src-tauri/src/class_scan.rs)): su Forge/NeoForge una keybind è un oggetto
+     `KeyBinding`/`KeyMapping` costruito nel codice e la sua chiave di traduzione è una **stringa
+     costante** del class file. Per ogni `.class` (anche dei JarJar) si legge **solo header +
+     constant pool** (parser scritto a mano, nessuna crate nuova: la decompressione si ferma lì); se
+     la classe referenzia una classe SDK (`forge_spec::KEYBIND_MARKERS`) le sue stringhe diventano
+     *candidate*; una candidata che è anche chiave dei lang è una keybind **certa**, anche senza
+     marcatori nel nome. Funziona perché la reobfuscation SRG rinomina solo metodi/campi, non le
+     classi. NON si applica a Fabric/Quilt (classi MC in *intermediary*, `class_304`).
+     La **tabella API keybind per versione** vive in `forge_spec.rs` (`keybind_api_for`,
+     `KEYBIND_MARKERS`): ≤1.7.10 `KeyBinding` + `cpw.mods.fml…ClientRegistry`; 1.8–1.16.5 `KeyBinding`
+     + `net.minecraftforge.fml…ClientRegistry`; 1.17–1.19.2 `KeyMapping` + ClientRegistry; ≥1.19.3
+     `RegisterKeyMappingsEvent` (NeoForge: package `net.neoforged.neoforge.client.event`); ≥1.21.9 /
+     NeoForge 21.9 `KeyMapping.Category` + `registerCategory`. Le classi si cercano **tutte** (la
+     cartella `mods` può avere jar di altre versioni); l'API attesa serve solo alla diagnostica —
+     se l'era della classe rilevata (`KeyBinding` ≤1.16 vs `KeyMapping` ≥1.17) non combacia con la
+     versione MC del progetto arriva un warning ("jar per la versione sbagliata").
+  2. **Lang** (`collect_lang_docs` + `keybinds_from_langs`): file di lingua inglese in **entrambi i
+     formati** — `assets/*/lang/en_us.json` (JSON piatto) e `assets/*/lang/en_US.lang` (properties,
+     Forge ≤1.12.2) — match del path **case-insensitive**, priorità al formato del profilo, dedup,
+     letti sia top-level sia dai **JarJar annidati** (un livello: es. Create bundla Ponder,
+     `key.ponder.ponder`). L'euristica `is_keybind_key` chiede un **segmento marcatore**
+     (`key`/`keys`/`keybind`/`keybinds`/`keyinfo`/`keymapping`) — i mod usano prefissi molto diversi
+     (`key.jei.x`, `cos.key.x`, `create.keyinfo.x`, `iris.keybind.x`, `keybind.simplyjetpacks.x`,
+     `mod.chiselsandbits.keys.x`) — escludendo i titoli di categoria via `is_category_key`: segmento
+     `categories` **oppure** `category` preceduto da `key` (formato `key.category.<ns>.<path>`,
+     introdotto con `KeyMapping.Category` in 1.21.9).
+  Il warning "nessun lang inglese" viene emesso **solo se il jar dichiara keybind** (prima era su
+  ogni mod senza lang: rumore). Restano fuori le keybind con chiave costruita a runtime
+  (`"key." + MODID + ".x"`) o dichiarata in classi che non referenziano l'SDK: per quelle c'è la
+  risoluzione mirata. La pagina Keybinds elenca **prima le keybind certe** (`source = "bytecode"`).
 - **Risoluzione mirata keybind (Rust)**: `mods.rs` espone `resolve_keybind_labels(dir, keys, mc?, forge?)`:
   date le chiavi di traduzione ESATTE (es. gli `actionKey` di un `keybindprofiles.json` importato) cerca
   per match esatto nei lang di ogni jar (JSON **e** `.lang`) la `label` e il `modId` proprietario, ritornando
@@ -191,7 +232,7 @@ costringendo a generare una versione nuova prima di ogni build.
 - **Cache scansione mod (SQLite, UNICO punto dati)**: [`mods-scan.ts`](src/lib/mods-scan.ts)
   (`getModsScanCached`/`peekModsScanCache`) chiama `scan_mods` e cacha il risultato completo
   (metadati + `keybinds` + diagnostica) in un'unica entry `manifest_cache` con chiave
-  `mods:v3:<mc>:<forge>:<workpath>`, **senza TTL** (si invalida solo col refresh manuale). L'hint di
+  `mods:v4:<mc>:<forge>:<workpath>`, **senza TTL** (si invalida solo col refresh manuale). L'hint di
   versione fa parte della chiave: cambiando versione MC cambia il formato atteso, quindi si
   riscansiona. È l'unica fonte da cui:
   - **List Mods** ([`listmods/page.tsx`](src/app/listmods/page.tsx)) deriva `project.mods` (i metadati;
@@ -201,6 +242,23 @@ costringendo a generare una versione nuova prima di ogni build.
     `ModKeybinds[]` → slice Redux **runtime** ([`keybind-actions-slice.ts`](src/redux/keybind-actions-slice.ts)).
   La pagina keybinds al mount carica la cache se presente, **altrimenti esegue la scansione unificata**
   (così è utilizzabile anche senza aver prima aperto List Mods); refresh manuale = `force=true`.
+- **Sincronizzazione col disco (mod/datapack)**: le liste derivate dal disco NON devono restare
+  congelate a quando il progetto è stato salvato. Lo slice project ha un contatore `loadId`
+  incrementato da `loadProject` (create/open/close, **non** persistito):
+  [`mods-sync.ts`](src/lib/mods-sync.ts) espone i wrapper `getModsScanForLoad` /
+  `getDatapacksScanForLoad` che alla **prima** lettura di ogni apertura rileggono i file dal disco
+  (`force`) e poi usano la cache SQLite — con dedup delle richieste concorrenti (più chiamanti nello
+  stesso istante condividono UNA scansione) — più `refreshModsScan`/`refreshDatapacksScan` per il
+  refresh manuale. Nello stesso modulo vivono `toProjectMods`/`toProjectDatapacks` (conversione
+  scansione → liste del project preservando `active` per `filename`; le voci non più sul disco
+  spariscono) e `diffMods`/`diffDatapacks`: **si dispatcha `updateProject` solo se il diff non è
+  vuoto**, così aprire un progetto o una pagina non fa comparire la SaveBar a vuoto.
+  [`mods-sync.tsx`](src/components/mods-sync.tsx) (`<ModsSync />`, headless, montato nel layout) fa
+  la sincronizzazione a ogni apertura **indipendentemente dalla pagina aperta**, aggiorna anche lo
+  slice `keybindActions` e mostra un toast con il conteggio aggiunte/rimozioni/aggiornamenti.
+  **Gotcha React**: le guardie "già fatto" vanno controllate e impostate **dopo** l'`await`, mai
+  prima, altrimenti in dev StrictMode (doppia invocazione degli effect) il lavoro avviato viene
+  scartato e non si applica nulla.
 - **Export keybind → file di config**: [`keybind-export/`](src/lib/keybind-export) definisce
   l'astrazione `KeybindExporter` (exporter **puri**: ritornano `{content, suggestedPath, warnings}`,
   non scrivono su disco — la scrittura + toast resta nella UI). `options-txt.ts` è l'exporter
@@ -236,15 +294,16 @@ costringendo a generare una versione nuova prima di ogni build.
   - **List Mods** ([`src/app/listmods/page.tsx`](src/app/listmods/page.tsx)) — card di
     riepilogo (totale/attive/inattive/dipendenze mancanti/**con avvisi**) + tabella con nome,
     versione, loader (badge), colonna **Format** (badge del file di metadati rilevato + icona con
-    tooltip dei `warnings` di scansione, letti dalla cache via `peekModsScanCache`), autori,
+    tooltip dei `warnings` di scansione, presi dalla stessa scansione), autori,
     checkbox `active` e colonna **Dependencies** (pallino verde se OK, rosso + lista dei modId
     mancanti via tooltip). `missingDependencies` confronta i `modId` delle dipendenze
     obbligatorie con l'insieme dei `provides` delle mod **attive**, ignorando loader/runtime
     (`RUNTIME_DEPS`). Nota: i progetti salvati prima di `provides` vanno ri-scansionati (refresh)
     per beneficiare di JarJar/provides; il fallback usa il solo `modId`. La scansione (`scan_mods`) scrive i risultati in `project.mods` (Redux,
-    via `setByPath`), preservando `active` per `filename`; parte **solo se `project.mods` è
-    vuoto** (una volta per workpath) o su refresh manuale, così non riscansiona a ogni
-    navigazione. Le modifiche marcano `unsaved` (Redux): la `<SaveBar />` globale appare in
+    via `setByPath`), preservando `active` per `filename`. **Si allinea al disco a ogni APERTURA di
+    progetto** (vedi "Sincronizzazione col disco"), non solo quando `project.mods` è vuoto: mod
+    rimosse/aggiunte/aggiornate fuori dall'app si riflettono subito. Dentro la stessa apertura si usa
+    la cache, così navigare tra le pagine non riapre i jar. Le modifiche marcano `unsaved` (Redux): la `<SaveBar />` globale appare in
     qualsiasi pagina per salvare su file.
 - **Da fare (focus attuale)**:
   - **Keybinds** ([`src/app/keybinds/page.tsx`](src/app/keybinds/page.tsx)) — rappresentazione

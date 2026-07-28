@@ -4,6 +4,7 @@ import { minecraftManifestReducer } from './metadata-mc-slice'
 import { modLoaderManifestReducer } from './metadata-ml-slice'
 import { documentsReducer } from './documents-slice'
 import { keybindActionsReducer } from './keybind-actions-slice'
+import { busyReducer } from './busy-slice'
 
 export const store = configureStore({
   reducer: {
@@ -11,7 +12,8 @@ export const store = configureStore({
     minecraftManifest: minecraftManifestReducer,
     modLoaderManifest: modLoaderManifestReducer,
     documents: documentsReducer,
-    keybindActions: keybindActionsReducer
+    keybindActions: keybindActionsReducer,
+    busy: busyReducer
   }
 })
 
