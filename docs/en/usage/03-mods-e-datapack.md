@@ -21,7 +21,8 @@ graph LR
 
 ## The mods table
 
-At the top you'll find three summaries: the **total** count, **active** mods and **inactive** ones.
+At the top you'll find the summaries: the **total** count, **active** mods, **inactive** ones,
+those with **missing dependencies** and those **with warnings** from reading the jars.
 
 The table shows, for each mod:
 
@@ -31,6 +32,7 @@ The table shows, for each mod:
 | **Mod** | Mod name |
 | **Version** | Version |
 | **Loader** | Forge / NeoForge / Fabric / Quilt (colored badge) |
+| **Format** | Which file the data was read from (see below) |
 | **Authors** | Authors |
 | **Dependencies** | Dependency status (see below) |
 
@@ -43,6 +45,30 @@ the pack without deleting files. The state is saved in the project.
 
 Use the **search** bar: you can type just a few letters of the name ("fuzzy" search) and the list
 reorders itself to show the best matches first.
+
+## Format and reading warnings
+
+Every mod describes itself in a file inside the jar, and that file **changes with the Minecraft
+version**. The app recognises all the formats and the **Format** column tells you which one it used:
+
+| Badge | Where the data comes from |
+|-------|---------------------------|
+| `mods.toml` | Forge/NeoForge mods from Minecraft 1.13 onwards |
+| `mcmod.info` | Forge mods **up to 1.12.2** (old format) |
+| `fabric.mod.json` / `quilt.mod.json` | Fabric / Quilt mods |
+| `MANIFEST.MF` | No recognised format: data taken from the jar manifest |
+| `not recognized` | The jar holds no readable information (only the file name is left) |
+
+If a **yellow triangle** appears next to the badge, hover it: the app explains what did not add up
+while reading that jar. The most common cases:
+
+- the jar is for a **different Minecraft version** than the one set in the dashboard (typical when a
+  mod is copied into the wrong folder);
+- the mod's description file is **malformed**: the data was recovered as best as possible;
+- the jar has **no English texts**, so its keybinds cannot be detected in the Keybinds section.
+
+> The Minecraft version set in the dashboard is part of what the app uses to figure out the format:
+> if you change it, the scan is redone from scratch the next time you open List Mods.
 
 ## Missing dependencies
 

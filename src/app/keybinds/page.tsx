@@ -58,6 +58,7 @@ import {
   setKeybindActionsLoading,
 } from "../../redux/keybind-actions-slice"
 import { getModsScanCached, peekModsScanCache, scannedMod, scannedKeybind } from "../../lib/mods-scan"
+import { resolveScanHint } from "../../lib/forge-spec"
 import { cn } from "../../lib/utils"
 import { keybind, keybindCategory, keybindMap, keybindTag, macro, macroModifier, mod, project } from "../../model/models"
 import {
@@ -336,12 +337,16 @@ function KeybindsBoard({ project }: { project: project }) {
     let cancelled = false
     ;(async () => {
       try {
-        let mods = await peekModsScanCache(workpath)
+        // L'hint di versione decide il formato di metadati/lang atteso (Forge
+        // legacy vs moderno) e fa parte della chiave di cache.
+        const hint = await resolveScanHint(project)
+        if (cancelled) return
+        let mods = await peekModsScanCache(workpath, hint)
         if (cancelled) return
         if (!mods) {
           // Nessuna cache: scansione unificata (una sola apertura dei jar).
           setScanning(true)
-          mods = await getModsScanCached(workpath, false)
+          mods = await getModsScanCached(workpath, false, hint)
         }
         if (cancelled) return
         setScanMods(mods)
@@ -363,7 +368,7 @@ function KeybindsBoard({ project }: { project: project }) {
     setScanning(true)
     dispatch(setKeybindActionsLoading(true))
     try {
-      const mods = await getModsScanCached(workpath, force)
+      const mods = await getModsScanCached(workpath, force, await resolveScanHint(project))
       setScanMods(mods)
       dispatch(setKeybindActions({ workpath, mods: toActions(mods) }))
     } catch (err) {

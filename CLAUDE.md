@@ -119,21 +119,43 @@ costringendo a generare una versione nuova prima di ogni build.
 - **Backend Rust**: [`src-tauri/src/lib.rs`](src-tauri/src/lib.rs) registra i plugin
   (fs, dialog, http, sql, opener), le migration SQLite e i comandi. Scritture SQL richiedono
   `sql:allow-execute` nelle capabilities.
+- **Profili di formato Forge per versione (Rust)**: [`forge_spec.rs`](src-tauri/src/forge_spec.rs)
+  contiene **la sola** tabella versione MC → formato atteso: `forge-legacy` (≤1.12.2: `mcmod.info`
+  + lang `en_US.lang` properties), `forge-fml` (1.13–1.20.4: `mods.toml` + `mandatory=` + lang JSON),
+  `forge-fml-modern` (≥1.20.5: `mods.toml` + `type=` + `provides`), `detect-only` (senza hint).
+  `spec_for(mc, forge)` è puro e testato. **Il rilevamento primario resta il contenuto del jar**: il
+  profilo serve solo da tie-break (jar con entrambi i formati), per l'ordine di lettura dei lang e
+  per i `warnings` di diagnostica. L'hint `{mc, forge}` è costruito da
+  [`forge-spec.ts`](src/lib/forge-spec.ts) (`resolveScanHint`): `mc` dal project, `forge` solo per
+  loader **Forge** (NeoForge ha numerazione diversa) e, se il progetto non ha ancora una versione di
+  loader, dedotta dall'ultima build nel manifest già cachato in SQLite (nessun host nuovo).
 - **Scansione mod (Rust)**: [`src-tauri/src/mods.rs`](src-tauri/src/mods.rs) espone il comando
-  `scan_mods(dir)` che apre ogni `.jar` come ZIP (crate `zip`) ed estrae i metadati dal formato
-  del loader: Forge `META-INF/mods.toml`, NeoForge `META-INF/neoforge.mods.toml` (crate `toml`),
-  Fabric `fabric.mod.json`, Quilt `quilt.mod.json` (`serde_json`). Ritorna `ScannedMod[]`
+  `scan_mods(dir, mc?, forge?)` che apre ogni `.jar` come ZIP (crate `zip`) ed estrae i metadati dal
+  formato **rilevato dalle entry del jar**: NeoForge `META-INF/neoforge.mods.toml`, Forge
+  `META-INF/mods.toml` (crate `toml`), **Forge ≤1.12.2 `mcmod.info`** (`parse_mcmod_info`, array o
+  `{modList}`), Quilt `quilt.mod.json`, Fabric `fabric.mod.json` (`serde_json`); poi `MANIFEST.MF`
+  (`Implementation-Title`/`-Version`) e infine il solo filename. Ritorna `ScannedMod[]`
   (filename, modId, name, modloader, version, description, authors, dependencies con
-  `mandatory`, `provides`, **`keybinds`**); fallback "unknown" col solo filename per jar non riconosciuti.
-  **Scansione UNIFICATA**: nella stessa apertura del jar `scan_mods` legge anche le keybind
-  (`collect_keybinds`), così ogni jar è aperto una sola volta per metadati + keybind (non esiste più
-  un comando `scan_keybinds` separato).
-  `provides` = TUTTI i modId messi a disposizione dal jar: più `[[mods]]`, campo `provides` e
-  **dipendenze incluse via JarJar** (`META-INF/jarjar/*.jar`, lette ricorsivamente). Serve a
-  evitare falsi "dipendenza mancante" nella verifica (le deps referenziano modId, e su Forge
-  molte dipendenze sono bundlate nel jar). `mandatory` considera sia `mandatory=` (Forge classico)
-  sia `type="required"|"optional"` (formato nuovo). I comandi applicativi non richiedono permessi
-  capability (a differenza dei comandi dei plugin). La scansione usa `std::fs`, non plugin-fs.
+  `mandatory`, `provides`, **`keybinds`**, **`format`**, **`warnings`**).
+  **Scansione UNIFICATA**: nella stessa apertura del jar `scan_mods` legge anche le keybind, così
+  ogni jar è aperto una sola volta per metadati + keybind (non esiste un comando `scan_keybinds`).
+  `provides` = TUTTI i modId messi a disposizione dal jar: più `[[mods]]`/entry di `mcmod.info`,
+  campo `provides` e **dipendenze incluse via JarJar** (`META-INF/jarjar/*.jar`, lette
+  ricorsivamente). Serve a evitare falsi "dipendenza mancante" nella verifica (le deps referenziano
+  modId, e su Forge molte dipendenze sono bundlate nel jar).
+  **Robustezza** (`forge_dependencies`): lookup di `[[dependencies.<modId>]]` **case-insensitive** su
+  tutti i modId del jar, accetta anche la tabella singola `[dependencies.x]`, e se nessuna chiave
+  combacia usa comunque le entry (con warning). `mandatory` considera sia `mandatory=` sia
+  `type="required"` (`optional`/`incompatible`/`discouraged` = non obbligatorie); su `mods.toml` non
+  parsabile si passa a una lettura permissiva riga per riga (`lenient_toml_value`) invece di
+  restituire una mod vuota. Legacy: `requiredMods` (obbligatorie) + `dependencies` (solo ordine,
+  prefissi FML `required-after:`/`after:`/`before:` via `parse_legacy_dep`).
+  **Diagnostica**: `format` (es. `forge:mcmod.info`, `unknown:manifest`) e `warnings` in inglese
+  (formato non allineato alla versione MC, TOML rotto, nessun lang, placeholder di versione
+  irrisolto…) — mostrati in List Mods, **non** persistiti in `project.json`.
+  I comandi applicativi non richiedono permessi capability (a differenza dei comandi dei plugin).
+  La scansione usa `std::fs`, non plugin-fs. `cargo test --lib` copre parser puri + un end-to-end
+  che costruisce jar reali (legacy e moderno) in temp.
 - **Scansione datapack (Rust)**: `mods.rs` espone anche `scan_datapacks(dir)` che legge una cartella
   e per ogni `.zip`/cartella con `pack.mcmeta` estrae `ScannedDatapack[]` (filename, name, description
   appiattita dal text component, `packFormat`). Cache SQLite `datapacks:<dir>` in
@@ -145,27 +167,33 @@ costringendo a generare una versione nuova prima di ogni build.
   `<workpath>/datapacks`). **List Mods** ([`listmods/page.tsx`](src/app/listmods/page.tsx)) mostra:
   solo la tabella datapack se loader=datapack puro, mods+datapack se ibrido, solo mods se loader
   classico. I datapack sono persistiti in `project.datapacks` (con `active` per filename, come le mod).
-- **Riconoscimento keybind (Rust)**: `collect_keybinds` (in `scan_mods`) legge le chiavi keybind
-  dai file `assets/*/lang/en_us.json` (`{key, label}`, dedup). Il riconoscimento (`is_keybind_key`)
+- **Riconoscimento keybind (Rust)**: `collect_lang_docs` + `keybinds_from_langs` (in `scan_mods`)
+  leggono le chiavi keybind dai file di lingua inglese in **entrambi i formati** —
+  `assets/*/lang/en_us.json` (JSON piatto) e `assets/*/lang/en_US.lang` (properties `chiave=testo`,
+  Forge ≤1.12.2) — con match del path **case-insensitive** e priorità al formato del profilo
+  (`{key, label}`, dedup). Se un jar non ha alcun lang inglese, la scansione lo segnala nei
+  `warnings` (keybind non rilevabili). Il riconoscimento (`is_keybind_key`)
   NON si limita a `key.*`: i mod usano prefissi molto diversi (`key.jei.x`, `cos.key.x`,
   `create.keyinfo.x`, `iris.keybind.x`, `keybind.simplyjetpacks.x`, `mod.chiselsandbits.keys.x`),
   quindi una chiave è keybind se ha un **segmento marcatore**
   (`key`/`keys`/`keybind`/`keybinds`/`keyinfo`/`keymapping`), escludendo i titoli di categoria
   (`.categories.`). I lang vengono letti sia top-level sia dai **JarJar annidati**
-  (`collect_lang_contents`, un livello): es. Create bundla Ponder (`key.ponder.ponder`). I mod che
+  (`collect_lang_docs`, un livello): es. Create bundla Ponder (`key.ponder.ponder`). I mod che
   nominano le KeyMapping senza alcun marcatore (es. `config.jsg.*`, `placebo.toggleTrails`) non sono
   distinguibili dalle altre traduzioni e NON sono coperti da questo scan generico.
-- **Risoluzione mirata keybind (Rust)**: `mods.rs` espone `resolve_keybind_labels(dir, keys)`: date
-  le chiavi di traduzione ESATTE (es. gli `actionKey` di un `keybindprofiles.json` importato) cerca
-  per match esatto nei lang di ogni jar la `label` e il `modId` proprietario, ritornando
+- **Risoluzione mirata keybind (Rust)**: `mods.rs` espone `resolve_keybind_labels(dir, keys, mc?, forge?)`:
+  date le chiavi di traduzione ESATTE (es. gli `actionKey` di un `keybindprofiles.json` importato) cerca
+  per match esatto nei lang di ogni jar (JSON **e** `.lang`) la `label` e il `modId` proprietario, ritornando
   `ResolvedKeybind[]` (`key`, `label`, `modId`). Nessuna euristica → risolve anche le keybind con
   nomi non standard senza falsi positivi. Usato dall'import ([`import-dialog.tsx`](src/components/keybinds/import-dialog.tsx)
   via `resolveKeybindLabels` in [`keybind-cache.ts`](src/lib/keybind-cache.ts)) come primo passo
   (più affidabile) di `resolveOwner`.
 - **Cache scansione mod (SQLite, UNICO punto dati)**: [`mods-scan.ts`](src/lib/mods-scan.ts)
   (`getModsScanCached`/`peekModsScanCache`) chiama `scan_mods` e cacha il risultato completo
-  (metadati + `keybinds`) in un'unica entry `manifest_cache` con chiave `mods:<workpath>`, **senza
-  TTL** (si invalida solo col refresh manuale). È l'unica fonte da cui:
+  (metadati + `keybinds` + diagnostica) in un'unica entry `manifest_cache` con chiave
+  `mods:v3:<mc>:<forge>:<workpath>`, **senza TTL** (si invalida solo col refresh manuale). L'hint di
+  versione fa parte della chiave: cambiando versione MC cambia il formato atteso, quindi si
+  riscansiona. È l'unica fonte da cui:
   - **List Mods** ([`listmods/page.tsx`](src/app/listmods/page.tsx)) deriva `project.mods` (i metadati;
     i `keybinds` NON vengono copiati in `project.json`, che resta leggero);
   - **Keybinds/Import** derivano le azioni per mod: [`keybind-cache.ts`](src/lib/keybind-cache.ts)
@@ -206,7 +234,9 @@ costringendo a generare una versione nuova prima di ogni build.
   metadata, scelta modloader + versioni filtrate dai manifest; **cache SQLite** dei manifest
   con TTL e refresh manuale.
   - **List Mods** ([`src/app/listmods/page.tsx`](src/app/listmods/page.tsx)) — card di
-    riepilogo (totale/attive/inattive) + tabella con nome, versione, loader (badge), autori,
+    riepilogo (totale/attive/inattive/dipendenze mancanti/**con avvisi**) + tabella con nome,
+    versione, loader (badge), colonna **Format** (badge del file di metadati rilevato + icona con
+    tooltip dei `warnings` di scansione, letti dalla cache via `peekModsScanCache`), autori,
     checkbox `active` e colonna **Dependencies** (pallino verde se OK, rosso + lista dei modId
     mancanti via tooltip). `missingDependencies` confronta i `modId` delle dipendenze
     obbligatorie con l'insieme dei `provides` delle mod **attive**, ignorando loader/runtime

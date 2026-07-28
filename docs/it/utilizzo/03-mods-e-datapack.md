@@ -21,7 +21,8 @@ graph LR
 
 ## La tabella delle mod
 
-In alto trovi tre riepiloghi: numero **totale**, mod **attive** e **non attive**.
+In alto trovi i riepiloghi: numero **totale**, mod **attive**, **non attive**, quelle con
+**dipendenze mancanti** e quelle **con avvisi** di lettura.
 
 La tabella mostra per ogni mod:
 
@@ -31,6 +32,7 @@ La tabella mostra per ogni mod:
 | **Mod** | Nome della mod |
 | **Version** | Versione |
 | **Loader** | Forge / NeoForge / Fabric / Quilt (badge colorato) |
+| **Format** | Da quale file sono stati letti i dati (vedi sotto) |
 | **Authors** | Autori |
 | **Dependencies** | Stato delle dipendenze (vedi sotto) |
 
@@ -43,6 +45,31 @@ traccia di cosa fa parte del pack senza cancellare file. Lo stato viene salvato 
 
 Usa la barra di **ricerca**: puoi digitare anche solo alcune lettere del nome (ricerca "fuzzy") e la
 lista si ordina mostrando prima le corrispondenze migliori.
+
+## Formato e avvisi di lettura
+
+Ogni mod descrive se stessa in un file dentro il jar, e quel file **cambia in base alla versione di
+Minecraft**. L'app riconosce tutti i formati e nella colonna **Format** ti dice quale ha usato:
+
+| Badge | Da dove arrivano i dati |
+|-------|-------------------------|
+| `mods.toml` | Mod Forge/NeoForge da Minecraft 1.13 in poi |
+| `mcmod.info` | Mod Forge **fino a 1.12.2** (formato vecchio) |
+| `fabric.mod.json` / `quilt.mod.json` | Mod Fabric / Quilt |
+| `MANIFEST.MF` | Nessun formato riconosciuto: dati ricavati dal manifest del jar |
+| `non riconosciuto` | Il jar non contiene informazioni leggibili (resta solo il nome del file) |
+
+Se accanto al badge compare un **triangolo giallo**, passaci il mouse: l'app spiega cosa non le è
+tornato leggendo quel jar. I casi più comuni:
+
+- il jar è di una **versione di Minecraft diversa** da quella impostata nella dashboard (tipico
+  quando si copia un mod nella cartella sbagliata);
+- il file di descrizione del mod è **malformato**: i dati sono stati recuperati alla meglio;
+- il jar **non contiene testi in inglese**, quindi le sue keybind non sono rilevabili nella sezione
+  Keybinds.
+
+> La versione di Minecraft impostata nella dashboard fa parte di quello che l'app usa per capire il
+> formato: se la cambi, alla prossima apertura di List Mods la scansione viene rifatta da zero.
 
 ## Dipendenze mancanti
 

@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { join } from "@tauri-apps/api/path"
 
 import { modKeybinds } from "../redux/keybind-actions-slice"
+import { scanHint } from "./forge-spec"
 import { getModsScanCached, peekModsScanCache, scannedMod } from "./mods-scan"
 
 // Le keybind NON hanno più una scansione/cache separata: derivano dalla
@@ -27,17 +28,21 @@ function toModKeybinds(mods: scannedMod[]): modKeybinds[] {
  */
 export async function getKeybindActionsCached(
   workpath: string,
-  force = false
+  force = false,
+  hint?: scanHint
 ): Promise<modKeybinds[]> {
-  return toModKeybinds(await getModsScanCached(workpath, force))
+  return toModKeybinds(await getModsScanCached(workpath, force, hint))
 }
 
 /**
  * Legge SOLO la cache unificata (senza scansionare): usata al mount per popolare
  * i dati velocemente se già presenti. Ritorna null se assente.
  */
-export async function peekKeybindActionsCache(workpath: string): Promise<modKeybinds[] | null> {
-  const cached = await peekModsScanCache(workpath)
+export async function peekKeybindActionsCache(
+  workpath: string,
+  hint?: scanHint
+): Promise<modKeybinds[] | null> {
+  const cached = await peekModsScanCache(workpath, hint)
   return cached ? toModKeybinds(cached) : null
 }
 
@@ -54,12 +59,19 @@ export interface resolvedKeybind {
  * match esatto nei jar la label e il modId proprietario. A differenza dello scan
  * generico trova anche le keybind con nomi non standard (config.jsg.*,
  * placebo.toggle*) senza falsi positivi. Le chiavi non trovate vengono omesse.
+ * `hint` decide l'ordine di lettura dei lang (JSON o .lang) per versione MC.
  */
 export async function resolveKeybindLabels(
   workpath: string,
-  keys: string[]
+  keys: string[],
+  hint?: scanHint
 ): Promise<resolvedKeybind[]> {
   if (keys.length === 0) return []
   const modsDir = await join(workpath, "mods")
-  return invoke<resolvedKeybind[]>("resolve_keybind_labels", { dir: modsDir, keys })
+  return invoke<resolvedKeybind[]>("resolve_keybind_labels", {
+    dir: modsDir,
+    keys,
+    mc: hint?.mc,
+    forge: hint?.forge,
+  })
 }

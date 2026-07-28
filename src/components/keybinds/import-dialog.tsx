@@ -33,6 +33,7 @@ import {
 } from "../../lib/keybind-import"
 import { resolveKeybindLabels } from "../../lib/keybind-cache"
 import { getModsScanCached } from "../../lib/mods-scan"
+import { resolveScanHint } from "../../lib/forge-spec"
 import { useAppDispatch } from "../../redux/hooks"
 import { updateProject } from "../../redux/project-slice"
 import { setKeybindActions } from "../../redux/keybind-actions-slice"
@@ -110,7 +111,10 @@ export function ImportDialog({
       //    installati (per verificare l'esistenza) e le loro keybind (per label).
       //    Aggiorna anche Redux così la board riflette lo scan.
       const workpath = project.configs.workpath
-      const scanned = await getModsScanCached(workpath, false)
+      // Hint di versione: seleziona il formato di metadati/lang atteso (Forge
+      // legacy vs moderno) sia per la scansione sia per la risoluzione mirata.
+      const hint = await resolveScanHint(project)
+      const scanned = await getModsScanCached(workpath, false, hint)
       // Mod installate = modId principali + i loro `provides` (alias). Così un
       // modId emulato conta come installato: es. EMI dichiara provides "jei",
       // quindi i binding key.jei.* vengono attribuiti a EMI invece di scartati.
@@ -143,7 +147,7 @@ export function ImportDialog({
       const wantedKeys = collectActionKeys(content)
       const resolvedByKey: Record<string, { modId: string; label: string }> = {}
       try {
-        for (const r of await resolveKeybindLabels(workpath, wantedKeys)) {
+        for (const r of await resolveKeybindLabels(workpath, wantedKeys, hint)) {
           resolvedByKey[r.key] = { modId: r.modId, label: r.label }
         }
       } catch (err) {

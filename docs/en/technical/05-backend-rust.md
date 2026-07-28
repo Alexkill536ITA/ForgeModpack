@@ -21,9 +21,9 @@ plugins** used directly from the frontend.
 
 | Command | File | Signature | Return |
 |---------|------|-------|---------|
-| `scan_mods` | mods.rs | `(dir: String)` | `Result<Vec<ScannedMod>, String>` |
+| `scan_mods` | mods.rs | `(dir: String, mc: Option<String>, forge: Option<String>)` | `Result<Vec<ScannedMod>, String>` |
 | `scan_datapacks` | mods.rs | `(dir: String)` | `Result<Vec<ScannedDatapack>, String>` |
-| `resolve_keybind_labels` | mods.rs | `(dir: String, keys: Vec<String>)` | `Result<Vec<ResolvedKeybind>, String>` |
+| `resolve_keybind_labels` | mods.rs | `(dir: String, keys: Vec<String>, mc: Option<String>, forge: Option<String>)` | `Result<Vec<ResolvedKeybind>, String>` |
 | `read_dir_tree` | files.rs | `(dir: String)` | `Result<Vec<FileNode>, String>` |
 | `greet` | lib.rs | `(name: &str)` | `String` (example command, unused) |
 

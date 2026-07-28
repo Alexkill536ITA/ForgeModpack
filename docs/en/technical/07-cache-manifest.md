@@ -26,7 +26,7 @@ graph LR
 |--------|-----------|-----|
 | `minecraft_manifest` | MC versions manifest | 24h |
 | `modloader_manifest` | Forge/NeoForge/Fabric/Quilt manifest | 24h |
-| `mods:v2:<workpath>` | Mod scan (metadata + keybind) | none (manual refresh) |
+| `mods:v3:<mc>:<forge>:<workpath>` | Mod scan (metadata + keybind + diagnostics) | none (manual refresh) |
 | `datapacks:v1:<dir>` | Datapack scan | none (manual refresh) |
 
 ## Remote manifests

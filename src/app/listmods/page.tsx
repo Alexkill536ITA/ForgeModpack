@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { RefreshCcwIcon, PackageIcon, CircleCheckIcon, CircleSlashIcon, CircleXIcon, SearchIcon, LayersIcon } from "lucide-react"
+import { RefreshCcwIcon, PackageIcon, CircleCheckIcon, CircleSlashIcon, CircleXIcon, SearchIcon, LayersIcon, TriangleAlertIcon } from "lucide-react"
 import { join } from "@tauri-apps/api/path"
 
 import { useTranslation } from "@/src/i18n/i18n-provider"
@@ -28,7 +28,8 @@ import { cn } from "../../lib/utils"
 import { useAppDispatch } from "../../redux/hooks"
 import { updateProject } from "../../redux/project-slice"
 import { setByPath } from "../../lib/json-data"
-import { getModsScanCached } from "../../lib/mods-scan"
+import { getModsScanCached, peekModsScanCache, scannedMod } from "../../lib/mods-scan"
+import { resolveScanHint } from "../../lib/forge-spec"
 import { getDatapacksScanCached } from "../../lib/datapacks-scan"
 import { datapack, mod, modloaderTypes, project } from "../../model/models"
 
@@ -99,6 +100,27 @@ function modScore(m: mod, query: string): number | null {
   return best
 }
 
+// Diagnostica per jar, dalla scansione (non persistita nel project.json).
+interface scanDiagnostic {
+  format: string
+  warnings: string[]
+}
+
+/**
+ * Etichetta breve del formato di metadati rilevato dalla scansione. I valori
+ * arrivano da Rust (`ScannedMod.format`): "forge:mods.toml", "forge:mcmod.info",
+ * "neoforge:mods.toml", "fabric:fabric.mod.json", "quilt:quilt.mod.json",
+ * "unknown:manifest", "unknown", "unreadable".
+ */
+function formatLabel(format: string | undefined, t: (key: string) => string): string {
+  if (!format) return "—"
+  if (format === "unknown") return t("listmods.formatNone")
+  if (format === "unknown:manifest") return "MANIFEST.MF"
+  if (format === "unreadable") return t("listmods.formatUnreadable")
+  const file = format.split(":")[1]
+  return file || format
+}
+
 // Colori coerenti con i loader mostrati nella home.
 const LOADER_STYLES: Record<string, string> = {
   forge: "border-[#ffc24b] text-[#ffc24b]",
@@ -150,6 +172,17 @@ function ModsList({ project }: { project: project }) {
   const showMods = loaderType !== modloaderTypes.DATAPACK || !!project.modloader.hybrid
   const showDatapacks = loaderType === modloaderTypes.DATAPACK
 
+  // Diagnostica per filename (formato rilevato + warning della scansione). Vive
+  // solo a runtime: si legge dalla cache di scansione, non dal project.json.
+  const [diagnostics, setDiagnostics] = useState<Map<string, scanDiagnostic>>(new Map())
+  const applyDiagnostics = useCallback((scanned: scannedMod[]) => {
+    setDiagnostics(
+      new Map(
+        scanned.map((s) => [s.filename, { format: s.format ?? "", warnings: s.warnings ?? [] }])
+      )
+    )
+  }, [])
+
   const [dpLoading, setDpLoading] = useState(false)
   const [dpError, setDpError] = useState<string | null>(null)
   const [dpSearch, setDpSearch] = useState("")
@@ -166,7 +199,11 @@ function ModsList({ project }: { project: project }) {
     setLoading(true)
     setError(null)
     try {
-      const scanned = await getModsScanCached(workpath, force)
+      // L'hint di versione seleziona il formato di metadati/lang atteso: i mod
+      // Forge <= 1.12.2 usano mcmod.info + lang .lang, dal 1.13 mods.toml + JSON.
+      const hint = await resolveScanHint(projectRef.current)
+      const scanned = await getModsScanCached(workpath, force, hint)
+      applyDiagnostics(scanned)
 
       const current = projectRef.current
       const prevActive = new Map(current.mods.map((m) => [m.filename, m.active]))
@@ -193,17 +230,26 @@ function ModsList({ project }: { project: project }) {
     } finally {
       setLoading(false)
     }
-  }, [workpath, dispatch, t])
+  }, [workpath, dispatch, t, applyDiagnostics])
 
   // Scansione automatica solo la prima volta per ogni workpath e solo se i mod
   // non sono già stati salvati nel progetto (così non si riscansiona di continuo).
+  // Se i mod ci sono già, si legge solo la cache per popolare la diagnostica.
   const initialized = useRef<string | null>(null)
   useEffect(() => {
     if (!showMods) return
     if (initialized.current === workpath) return
     initialized.current = workpath
-    if (projectRef.current.mods.length === 0) void scan()
-  }, [workpath, scan, showMods])
+    void (async () => {
+      if (projectRef.current.mods.length === 0) {
+        await scan()
+        return
+      }
+      const hint = await resolveScanHint(projectRef.current)
+      const cached = await peekModsScanCache(workpath, hint)
+      if (cached) applyDiagnostics(cached)
+    })()
+  }, [workpath, scan, showMods, applyDiagnostics])
 
   function toggleActive(filename: string) {
     const current = projectRef.current
@@ -271,6 +317,9 @@ function ModsList({ project }: { project: project }) {
   )
 
   const missing = mods.filter((m) => m.active && missingDependencies(m, installedIds).length > 0)
+  // Mod il cui jar ha prodotto avvisi in scansione (formato inatteso, metadati
+  // malformati, nessun file di lingua...): vanno guardate a occhio.
+  const withWarnings = mods.filter((m) => (diagnostics.get(m.filename)?.warnings.length ?? 0) > 0)
 
   // Lista mostrata: senza query mantiene l'ordine originale; con query filtra
   // per match fuzzy e ordina per rilevanza (punteggio decrescente).
@@ -319,6 +368,12 @@ function ModsList({ project }: { project: project }) {
           value={missing.length}
           icon={<CircleXIcon className="size-5 text-red-500" />}
           className="bg-red-500/10"
+        />
+        <SummaryCard
+          label={t("listmods.withWarnings")}
+          value={withWarnings.length}
+          icon={<TriangleAlertIcon className="size-5 text-amber-500" />}
+          className="bg-amber-500/10"
         />
       </div>
 
@@ -374,6 +429,7 @@ function ModsList({ project }: { project: project }) {
                       <TableHead>{t("listmods.mod")}</TableHead>
                       <TableHead className="w-32">{t("listmods.version")}</TableHead>
                       <TableHead className="w-28">{t("listmods.loader")}</TableHead>
+                      <TableHead className="w-40">{t("listmods.format")}</TableHead>
                       <TableHead>{t("listmods.authors")}</TableHead>
                       <TableHead className="w-40">{t("listmods.dependencies")}</TableHead>
                     </TableRow>
@@ -397,6 +453,44 @@ function ModsList({ project }: { project: project }) {
                           <Badge variant="outline" className={cn("capitalize", LOADER_STYLES[m.modloader])}>
                             {m.modloader}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            // Diagnostica: formato di metadati rilevato nel jar +
+                            // avvisi della scansione (tooltip). Assente se la
+                            // cache di scansione non c'è ancora.
+                            const diag = diagnostics.get(m.filename)
+                            if (!diag) return <span className="text-muted-foreground">—</span>
+                            const label = formatLabel(diag.format, t)
+                            const unknown = !diag.format || diag.format.startsWith("unknown") || diag.format === "unreadable"
+                            return (
+                              <span className="flex items-center gap-1.5">
+                                <Badge
+                                  variant="outline"
+                                  className={cn("font-mono text-[10px]", unknown && "border-muted-foreground text-muted-foreground")}
+                                >
+                                  {label}
+                                </Badge>
+                                {diag.warnings.length > 0 && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="cursor-default text-amber-500">
+                                        <TriangleAlertIcon className="size-3.5" />
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-80">
+                                      <div className="font-medium">{t("listmods.scanWarnings")}</div>
+                                      <ul className="list-disc pl-4">
+                                        {diag.warnings.map((w, i) => (
+                                          <li key={i}>{w}</li>
+                                        ))}
+                                      </ul>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </span>
+                            )
+                          })()}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {m.authors && m.authors.length > 0 ? m.authors.join(", ") : "—"}

@@ -15,15 +15,16 @@ usati direttamente dal frontend.
 | [`main.rs`](../../../src-tauri/src/main.rs) | Entry point: delega a `forgemodpack_lib::run()`; nasconde la console su Windows release |
 | [`lib.rs`](../../../src-tauri/src/lib.rs) | Setup app, registrazione plugin, migration SQLite, `invoke_handler` |
 | [`mods.rs`](../../../src-tauri/src/mods.rs) | Scansione mod, datapack, keybind (apertura jar/zip) |
+| [`forge_spec.rs`](../../../src-tauri/src/forge_spec.rs) | Profili di formato dei mod Forge per versione MC (vedi [06](./06-scansione.md)) |
 | [`files.rs`](../../../src-tauri/src/files.rs) | Albero file ricorsivo per la sezione Documents |
 
 ## Comandi Tauri esposti
 
 | Comando | File | Firma | Ritorno |
 |---------|------|-------|---------|
-| `scan_mods` | mods.rs | `(dir: String)` | `Result<Vec<ScannedMod>, String>` |
+| `scan_mods` | mods.rs | `(dir: String, mc: Option<String>, forge: Option<String>)` | `Result<Vec<ScannedMod>, String>` |
 | `scan_datapacks` | mods.rs | `(dir: String)` | `Result<Vec<ScannedDatapack>, String>` |
-| `resolve_keybind_labels` | mods.rs | `(dir: String, keys: Vec<String>)` | `Result<Vec<ResolvedKeybind>, String>` |
+| `resolve_keybind_labels` | mods.rs | `(dir: String, keys: Vec<String>, mc: Option<String>, forge: Option<String>)` | `Result<Vec<ResolvedKeybind>, String>` |
 | `read_dir_tree` | files.rs | `(dir: String)` | `Result<Vec<FileNode>, String>` |
 | `greet` | lib.rs | `(name: &str)` | `String` (comando di esempio, non usato) |
 
