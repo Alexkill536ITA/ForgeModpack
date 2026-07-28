@@ -1,6 +1,6 @@
 [package]
 name = "forgemodpack"
-version = "1.1.0"
+version = "1.2.0"
 description = "Forge Modpack v2"
 authors = ["AlexKill536"]
 edition = "2021"
