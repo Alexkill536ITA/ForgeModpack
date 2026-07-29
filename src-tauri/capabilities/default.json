@@ -85,6 +85,9 @@
         },
         {
           "url": "https://meta.quiltmc.org/**"
+        },
+        {
+          "url": "https://api.github.com/**"
         }
       ]
     },

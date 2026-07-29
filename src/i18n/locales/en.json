@@ -340,5 +340,27 @@
     "exportingKeybinds": "Exporting keybinds…",
     "updatingManifests": "Downloading Minecraft and mod loader versions…",
     "readingFileTree": "Reading the file tree…"
+  },
+  "updates": {
+    "menu": "Check for Updates",
+    "menuAria": "Check for application updates",
+    "indicatorAria": "An update is available",
+    "titleChecking": "Checking for updates",
+    "titleAvailable": "Update available",
+    "titleUpToDate": "You're up to date",
+    "titleError": "Update check failed",
+    "checking": "Contacting GitHub…",
+    "availableBody": "A newer version of Forge Modpack has been released.",
+    "upToDate": "You're running the latest version ({version}).",
+    "errorBody": "Could not check for updates. Check your internet connection and try again.",
+    "currentVersion": "Current version",
+    "newVersion": "New version",
+    "notes": "What's new",
+    "noNotes": "No release notes provided.",
+    "prereleaseBadge": "Pre-release",
+    "includePrerelease": "Include beta versions (pre-releases)",
+    "download": "Download",
+    "later": "Later",
+    "recheck": "Check again"
   }
 }

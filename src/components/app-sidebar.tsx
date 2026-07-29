@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu"
 import { Button } from "./ui/button"
+import { Badge } from "./ui/badge"
 import { useAppDispatch, useAppSelector } from "../redux/hooks"
 import { loadProject, markSaved, updateProject } from "../redux/project-slice"
 import { open, save } from "@tauri-apps/plugin-dialog"
@@ -32,6 +33,7 @@ import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs"
 import { join, dirname, basename } from "@tauri-apps/api/path"
 import { toast } from "sonner"
 import { useConfirm } from "../providers/confirm-dialog-provider"
+import { useUpdateCheck } from "../providers/update-provider"
 import { exit } from "@tauri-apps/plugin-process"
 import { setByPath } from "../lib/json-data"
 import { useTranslation } from "@/src/i18n/i18n-provider"
@@ -95,6 +97,7 @@ const NAV_MAIN_ITEMS = [
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { t } = useTranslation()
   const { confirm } = useConfirm()
+  const { checkNow, updateAvailable, latestVersion } = useUpdateCheck()
   const dispatch = useAppDispatch()
   const projectState = useAppSelector((state) => state.project.project)
   const projectUnsaved = useAppSelector((state) => state.project.unsaved)
@@ -331,6 +334,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 <Button variant="outline" className="w-full justify-start">
                   <HammerIcon className="size-5!" />
                   <span className="text-base font-semibold">Forge Modpack</span>
+                  {/* Pallino: col menu chiuso è l'unico segnale che c'è un
+                      aggiornamento (il badge sta nella voce di menu). */}
+                  {updateAvailable && (
+                    <span
+                      className="bg-primary ml-auto size-2 shrink-0 rounded-full"
+                      aria-label={t("updates.indicatorAria")}
+                      title={t("updates.indicatorAria")}
+                    />
+                  )}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56" aria-label={t("sidebar.projectMenuAria")}>
@@ -391,6 +403,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   aria-label={t("sidebar.changeWorkspaceAria")}
                 >
                   <span>{t("sidebar.changeWorkspace")}</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="flex justify-between items-center"
+                  onSelect={checkNow}
+                  aria-label={t("updates.menuAria")}
+                >
+                  <span>{t("updates.menu")}</span>
+                  {updateAvailable && latestVersion && (
+                    <Badge variant="default" className="ml-2">{latestVersion}</Badge>
+                  )}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem

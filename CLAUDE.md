@@ -274,6 +274,22 @@ costringendo a generare una versione nuova prima di ogni build.
   [`export-dialog.tsx`](src/components/keybinds/export-dialog.tsx): si sceglie **prima il formato**, poi
   il selettore mappa compare in base a `maps` (keyset=tutte, options.txt=singola, html/png=singola o
   "All"=un file per mappa). L'export multi-file può scrivere in una cartella scelta (`openDialog`).
+- **Check aggiornamenti**: [`update-check.ts`](src/lib/update-check.ts) confronta la versione
+  installata (`getVersion()`) con le GitHub Releases del repo (`GET /repos/.../releases`, **non**
+  `/releases/latest`: quello ignora le pre-release, e le beta pubblicate resterebbero invisibili).
+  L'host `https://api.github.com/**` è whitelistato nelle capabilities e la richiesta manda un
+  `User-Agent` esplicito (senza, l'API risponde 403). `compareVersions`/`pickLatestRelease` sono
+  **pure** (semver ridotto: un tag non versionato vale 0 = nessun update proposto). È solo un CHECK:
+  niente `tauri-plugin-updater`, quindi nessuna chiave di firma — il bottone Download apre la pagina
+  della release con `openUrl`. La preferenza "includi pre-release"
+  (`fmp.updates.includePrerelease`) sta in `localStorage` come la lingua, default off.
+  [`update-provider.tsx`](src/providers/update-provider.tsx) (montato in `layout.tsx` dentro
+  `ConfirmProvider`, così avvolge la sidebar) espone `useUpdateCheck()` →
+  `{ checkNow, updateAvailable, latestVersion }`: check **automatico e silenzioso all'avvio** (apre il
+  dialog solo se c'è una versione nuova; gli errori restano in console: l'app funziona offline) e
+  **manuale** dalla voce "Controlla aggiornamenti" del menu della sidebar (apre sempre il dialog).
+  Niente `BusyOverlay`: è una richiesta HTTP leggera. La guardia del check all'avvio sta **prima**
+  dell'`await` (unico scopo: non chiamare l'API due volte in StrictMode — rate limit 60 req/h).
 - **File explorer (Rust)**: [`src-tauri/src/files.rs`](src-tauri/src/files.rs) espone `read_dir_tree(dir)`
   che legge **ricorsivamente** una directory e ritorna un albero `FileNode[]` (`name`, `path`
   assoluto, `isDir`, `children`), cartelle prima dei file e in ordine alfabetico; i symlink non

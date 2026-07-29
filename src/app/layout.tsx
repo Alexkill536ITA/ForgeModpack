@@ -15,6 +15,7 @@ import { BusyOverlay } from "../components/busy-overlay";
 import { Toaster } from "../components/ui/sonner";
 import ReduxProvider from "../redux/redux-provider";
 import { ConfirmProvider } from "../providers/confirm-dialog-provider";
+import { UpdateProvider } from "../providers/update-provider";
 import { I18nProvider } from "../i18n/i18n-provider";
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
@@ -31,6 +32,9 @@ export default function RootLayout({
           <I18nProvider>
             <TooltipProvider>
               <ConfirmProvider>
+              {/* Controlla gli aggiornamenti all'avvio e ospita il dialog:
+                  deve avvolgere la sidebar, che lo lancia dal menu. */}
+              <UpdateProvider>
               <SidebarProvider
                 style={
                   {
@@ -57,6 +61,7 @@ export default function RootLayout({
                   </ScrollArea>
                 </SidebarInset>
               </SidebarProvider>
+              </UpdateProvider>
             </ConfirmProvider>
           </TooltipProvider>
             <Toaster />

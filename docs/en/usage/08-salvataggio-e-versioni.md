@@ -54,3 +54,24 @@ graph LR
 In practice, before generating the executable you run `pnpm bump` to increment the version; without
 this step the build is blocked. The technical details are in the
 [technical documentation](../technical/12-versioning-build.md).
+
+## Checking for updates
+
+On startup the app checks GitHub for a newer release of Forge Modpack. If there is one, a window shows
+the current version, the new one and the release notes; the **Download** button opens the download
+page in your browser. The app **does not update itself**: you download and run the installer manually.
+
+If nothing new is found (or you are offline) startup shows no window at all: the check stays silent and
+the app works normally offline too.
+
+You can check at any time from the **Forge Modpack** menu (at the top of the sidebar) → **Check for
+Updates**. When an update is available a dot appears next to the app name and the menu entry shows the
+new version number.
+
+The window also has an **Include beta versions (pre-releases)** checkbox:
+
+- **off** (default): only stable versions are offered;
+- **on**: pre-releases are offered too — test versions published before a stable one: more up to date,
+  but potentially less tested.
+
+Your choice is remembered for next time.

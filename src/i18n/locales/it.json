@@ -340,5 +340,27 @@
     "exportingKeybinds": "Esportazione delle keybind…",
     "updatingManifests": "Download delle versioni di Minecraft e dei modloader…",
     "readingFileTree": "Lettura dell'albero dei file…"
+  },
+  "updates": {
+    "menu": "Controlla aggiornamenti",
+    "menuAria": "Controlla gli aggiornamenti dell'applicazione",
+    "indicatorAria": "È disponibile un aggiornamento",
+    "titleChecking": "Controllo aggiornamenti",
+    "titleAvailable": "Aggiornamento disponibile",
+    "titleUpToDate": "Sei aggiornato",
+    "titleError": "Controllo aggiornamenti fallito",
+    "checking": "Connessione a GitHub…",
+    "availableBody": "È stata pubblicata una versione più recente di Forge Modpack.",
+    "upToDate": "Stai usando l'ultima versione disponibile ({version}).",
+    "errorBody": "Impossibile controllare gli aggiornamenti. Verifica la connessione a Internet e riprova.",
+    "currentVersion": "Versione attuale",
+    "newVersion": "Nuova versione",
+    "notes": "Novità",
+    "noNotes": "Nessuna nota di rilascio disponibile.",
+    "prereleaseBadge": "Pre-release",
+    "includePrerelease": "Includi le versioni beta (pre-release)",
+    "download": "Scarica",
+    "later": "Più tardi",
+    "recheck": "Controlla di nuovo"
   }
 }

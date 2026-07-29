@@ -54,3 +54,25 @@ graph LR
 In pratica, prima di generare l'eseguibile si esegue `pnpm bump` per incrementare la versione; senza
 questo passaggio la build viene bloccata. I dettagli tecnici sono nella
 [documentazione tecnica](../tecnica/12-versioning-build.md).
+
+## Controllo degli aggiornamenti
+
+All'avvio l'app controlla su GitHub se è uscita una versione più recente di Forge Modpack. Se c'è,
+compare una finestra con la versione attuale, quella nuova e le novità del rilascio; il bottone
+**Scarica** apre la pagina di download nel browser. L'app **non si aggiorna da sola**: l'installer va
+scaricato e lanciato a mano.
+
+Se non c'è nulla di nuovo (o manca la connessione) l'avvio non mostra nessuna finestra: il controllo
+resta silenzioso e l'app funziona normalmente anche offline.
+
+Puoi controllare in qualsiasi momento dal menu **Forge Modpack** (in cima alla barra laterale) →
+**Controlla aggiornamenti**. Quando un aggiornamento è disponibile, accanto al nome dell'app compare
+un pallino e la voce di menu mostra il numero della nuova versione.
+
+Nella finestra c'è la casella **Includi le versioni beta (pre-release)**:
+
+- **disattivata** (predefinito): vengono proposte solo le versioni stabili;
+- **attivata**: vengono proposte anche le pre-release, cioè le versioni di prova pubblicate prima di
+  una stabile — più aggiornate, ma potenzialmente meno collaudate.
+
+La scelta viene ricordata per le volte successive.
