@@ -8,7 +8,8 @@ import { Button } from "./ui/button"
 import { Separator } from "./ui/separator"
 import { useAppDispatch, useAppSelector } from "../redux/hooks"
 import { loadProject } from "../redux/project-slice"
-import { defaultJvmSettings, modloaderTypes, project } from "../model/models"
+import { defaultJvmSettings, project } from "../model/models"
+import { emptyProject } from "../lib/new-project"
 import { useTranslation } from "@/src/i18n/i18n-provider"
 
 /**
@@ -23,19 +24,7 @@ function NoProjectSelected() {
     const workpath = await open({ multiple: false, directory: true })
     if (!workpath) return
 
-    dispatch(loadProject({
-      metadata: { name: "", version: "", description: "" },
-      modloader: { mcversion: "", type: modloaderTypes.FORGE, version: "" },
-      assetes: [],
-      notes: [],
-      mods: [],
-      datapacks: [],
-      keybindMaps: [],
-      keybindCategories: [],
-      keybindTags: [],
-      jvm: defaultJvmSettings(),
-      configs: { workpath },
-    }))
+    dispatch(loadProject(emptyProject(workpath)))
   }
 
   async function handleOpen() {

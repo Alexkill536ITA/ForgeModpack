@@ -34,7 +34,8 @@ Lo stesso vale per la lista dei **datapack**.
 ## La tabella delle mod
 
 In alto trovi i riepiloghi: numero **totale**, mod **attive**, **non attive**, quelle con
-**dipendenze mancanti** e quelle **con avvisi** di lettura.
+**dipendenze mancanti**, le **incompatibili** con la versione di Minecraft e quelle **con avvisi** di
+lettura.
 
 La tabella mostra per ogni mod:
 
@@ -44,6 +45,7 @@ La tabella mostra per ogni mod:
 | **Mod** | Nome della mod |
 | **Version** | Versione |
 | **Loader** | Forge / NeoForge / Fabric / Quilt (badge colorato) |
+| **MC** | Versione di Minecraft dichiarata dalla mod + esito del confronto (vedi sotto) |
 | **Format** | Da quale file sono stati letti i dati (vedi sotto) |
 | **Authors** | Autori |
 | **Dependencies** | Stato delle dipendenze (vedi sotto) |
@@ -57,6 +59,69 @@ traccia di cosa fa parte del pack senza cancellare file. Lo stato viene salvato 
 
 Usa la barra di **ricerca**: puoi digitare anche solo alcune lettere del nome (ricerca "fuzzy") e la
 lista si ordina mostrando prima le corrispondenze migliori.
+
+### Filtrare con i chip
+
+A destra della ricerca ci sono cinque **chip** con il numero di mod in ciascuna condizione (gli
+stessi numeri delle card in cima alla pagina): **Attive**, **Non attive**, **Dipendenze mancanti**,
+**Incompatibili** e **Con avvisi**. Cliccane uno per mostrare solo quelle mod; cliccalo di nuovo per rimuoverlo.
+
+Puoi selezionarne più di uno, e si combinano così:
+
+- chip dello **stesso gruppo** → *oppure*: Dipendenze mancanti + Con avvisi = le mod che hanno almeno
+  uno dei due problemi;
+- chip di **gruppi diversi** → *e anche*: Attive + Con avvisi = solo le mod attive che hanno avvisi.
+
+> Le dipendenze mancanti vengono contate solo per le mod **attive** (una mod spenta non può rompere il
+> pack): la combinazione "Non attive + Dipendenze mancanti" non restituisce quindi nessuna riga.
+
+Il pulsante **Azzera filtri** rimuove insieme i chip e il testo cercato; il titolo della tabella
+mostra quante righe stai vedendo sul totale (es. `(12/148)`).
+
+### Ordinare la tabella
+
+La tabella parte sempre **ordinata per nome** (dalla A alla Z), quindi trovi le mod dove te le aspetti
+anche quando i file sul disco si chiamano in modo diverso dal nome della mod.
+
+Clicca l'intestazione di una colonna per cambiare ordine: il **primo** click ordina in modo crescente,
+il **secondo** decrescente, il **terzo** torna all'ordinamento di partenza. La freccia accanto al nome
+della colonna indica l'ordine attivo.
+
+- **On** — prima le attive (o prima le non attive, invertendo).
+- **Version** — ordine "naturale": la 1.10 viene **dopo** la 1.9 (un ordinamento alfabetico farebbe
+  il contrario).
+- **MC** — prima le mod compatibili, poi quelle non verificabili, infine le incompatibili (invertendo
+  l'ordine porti in cima i problemi).
+- **Dependencies** — per numero di dipendenze mancanti: invertendo l'ordine porti in cima le mod
+  problematiche.
+
+Ordinamento e filtri si combinano con la ricerca. Mentre **cerchi**, la lista mostra prima le
+corrispondenze migliori invece dell'ordine alfabetico (altrimenti il risultato più pertinente
+finirebbe in fondo); se in quel momento clicchi un'intestazione, l'ordine che hai scelto ha la
+precedenza.
+
+## Compatibilità con la versione di Minecraft
+
+La colonna **MC** mostra su quale versione di Minecraft la mod dichiara di funzionare, letta dai suoi
+metadati, con un pallino che dice com'è andato il confronto con la versione del tuo progetto:
+
+| Pallino | Significato |
+|---|---|
+| 🟢 verde | la mod copre la versione MC del progetto |
+| 🔴 rosso | la mod dichiara altre versioni: è quasi certamente il jar sbagliato |
+| ⚪ grigio | la mod dichiara qualcosa che l'app non ha saputo interpretare: da controllare a mano |
+| `—` | la mod non dichiara nessuna versione (frequente nelle mod vecchie) |
+
+Passando il mouse sul valore compare la spiegazione completa. Le mod in rosso sono contate nella card
+**Incompatibili** in cima alla pagina e si isolano col chip **Incompatibili**; per ognuna compare anche
+un avviso nella colonna **Format**.
+
+> Grigio e `—` **non** sono errori: significano "non verificabile", e l'app preferisce dirlo piuttosto
+> che segnalarti un problema inesistente. A differenza delle dipendenze mancanti, il conteggio delle
+> incompatibili include anche le mod disattivate: dipende dal jar, non dal fatto che sia attivo.
+
+Il controllo usa la versione di Minecraft scelta nella Dashboard: se la cambi, le mod vengono rilette e
+la colonna si aggiorna.
 
 ## Formato e avvisi di lettura
 

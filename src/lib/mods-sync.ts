@@ -1,6 +1,6 @@
 // Sincronizzazione delle liste derivate dal disco (mod e datapack) col `project`.
 //
-// Regola: **a ogni apertura di progetto** (create/open, cioè a ogni cambio di
+// Regola: a ogni apertura di progetto (create/open, cioè a ogni cambio di
 // `loadId` nello slice project) le liste vengono rilette dal disco, anche se il
 // progetto era già salvato con le mod dentro. Così un mod rimosso, aggiunto o
 // aggiornato fuori dall'app si riflette subito. Dentro la stessa apertura le

@@ -7,7 +7,7 @@
 // permette di scegliere il profilo:
 //
 //   - `mc`    = versione di Minecraft del progetto (di norma basta questa);
-//   - `forge` = versione del loader **Forge**, usata dal backend solo quando la
+//   - `forge` = versione del loader Forge, usata dal backend solo quando la
 //               versione MC non è interpretabile (es. snapshot "24w14a").
 //
 // La parte "online" è il completamento dell'hint: se il progetto non ha ancora
@@ -39,7 +39,7 @@ function effectiveLoader(p: project): modloaderTypes | undefined {
  * dichiarata nel progetto. È quello che si usa quando serve solo la chiave di
  * cache o quando il manifest non è disponibile.
  *
- * NOTA: la versione viene passata solo per **Forge**, perché il backend la
+ * NOTA: la versione viene passata solo per Forge, perché il backend la
  * interpreta con la numerazione Forge (14 = 1.12.2, 47 = 1.20.1, 50+ = 1.20.5+).
  * NeoForge usa una numerazione diversa (20.4, 21.1…) che falserebbe il
  * confronto: per NeoForge basta e avanza la versione di Minecraft.

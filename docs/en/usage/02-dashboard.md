@@ -37,6 +37,18 @@ graph TD
 > When you change the MC version or the loader type, the loader version is reset: you'll have to pick
 > it again (it's a safeguard, because not all versions are compatible with each other).
 
+Some loaders don't exist on every Minecraft version and stay **unselectable** until you pick a
+compatible one:
+
+| Loader | Available from |
+| --- | --- |
+| **NeoForge** | Minecraft 1.20.1 |
+| **Datapack** | Minecraft 1.13 (data packs don't exist before that) |
+
+If your project is on **Datapack** and you drop to a version older than 1.13, the loader goes back to
+**Forge** automatically (with a warning) and hybrid mode is turned off: that combination wouldn't
+exist in the game.
+
 ### Datapack-only modpacks and hybrid mode
 
 If you choose **Datapack** as the loader, the pack depends only on the Minecraft version (no loader

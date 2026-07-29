@@ -48,6 +48,8 @@
     "datapacksFolder": "Datapacks folder",
     "browse": "Browse",
     "datapacksFolderHint": "Absolute path. Leave empty to use <workpath>\\datapacks.",
+    "datapackMinVersionHint": "Data packs were introduced in Minecraft 1.13: on older versions the Datapack loader is unavailable.",
+    "datapackUnavailable": "Minecraft {version} has no data packs (they exist from 1.13): the mod loader has been set back to Forge.",
     "assets": "Assets",
     "asset": "Asset",
     "noAssets": "No assets yet.",
@@ -95,6 +97,15 @@
     "searchModsPlaceholder": "Search mods by name, file, id or author…",
     "searchDatapacksPlaceholder": "Search datapacks by name or file…",
     "noModsMatch": "No mods match “{query}”.",
+    "noModsMatchFilters": "No mods match the selected filters.",
+    "mcVersion": "MC",
+    "incompatible": "Incompatible",
+    "mcCompatible": "Declares Minecraft {constraint}, which covers the project's {mc}.",
+    "mcIncompatible": "Declares Minecraft {constraint}, which does not cover the project's {mc}.",
+    "mcUnchecked": "Declares Minecraft {constraint}, in a format that could not be checked automatically.",
+    "filters": "Filters",
+    "clearFilters": "Clear filters",
+    "sortBy": "Sort by {column}",
     "noDatapacksMatch": "No datapacks match “{query}”.",
     "on": "On",
     "mod": "Mod",
@@ -184,8 +195,7 @@
     },
     "reason": {
       "notInstalled": "Mod not installed",
-      "unmapped": "Key not on layout",
-      "overflow": "Over 4-per-key limit"
+      "unmapped": "Key not on layout"
     },
     "importReport": {
       "title": "Import report",
@@ -197,7 +207,27 @@
       "colAction": "Action",
       "colKey": "Key",
       "colProblem": "Problem"
-    }
+    },
+    "layers": "Layers",
+    "layerN": "Layer {n}",
+    "allLayers": "All layers",
+    "addLayer": "Add layer",
+    "addLayerTitle": "Add a layer",
+    "removeLayer": "Remove layer",
+    "removeLayerTitle": "Remove {layer} (it is empty)",
+    "removeLayerBlocked": "Only an empty layer can be removed: move its bindings to another layer first.",
+    "spread": "Spread on layers",
+    "spreadTitle": "Move the bindings that share a key onto separate layers, one per layer.",
+    "alsoOnLayers": "Also used on: {layers}",
+    "isolatedByFilter": "With a filter on, the keyboard shows only the matching bindings, across all layers: the others are marked with the folded corner.",
+    "alsoUsedBy": "Also used by: {mods}",
+    "noMacrosForFilter": "No macro matches the active filter.",
+    "allProfilesConfirmTitle": "Apply to every map?",
+    "allProfilesConfirmMessage": "Key {key} will be overwritten in all {maps} maps, not just the current one. There is no undo.",
+    "layer": "Layer",
+    "newLayer": "New layer",
+    "layerSelectHint": "Each binding lives on a layer: pick it from the list, so the key shows one action per layer.",
+    "sameLayerWarning": "Two or more bindings share the same layer ({layers}): on that layer the key will be split into panels."
   },
   "keybindIo": {
     "exportTitle": "Export keybinds",
@@ -223,8 +253,7 @@
     "noFileInProjectFolder": "No {defaultFileName} found in the project folder.",
     "importDescription": "Profiles become keybind maps. Maps with the same name are replaced; missing mods are added automatically.",
     "reasonNotInstalled": "{count} binding(s) for mods not installed were skipped.",
-    "reasonUnmapped": "{count} key(s) could not be mapped to the layout and were skipped.",
-    "reasonOverflow": "{count} binding(s) exceeded the 4-per-key limit and were skipped."
+    "reasonUnmapped": "{count} key(s) could not be mapped to the layout and were skipped."
   },
   "jvm": {
     "memoryParameters": "Memory parameters",

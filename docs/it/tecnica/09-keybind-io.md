@@ -31,11 +31,12 @@ mostrati in UI; `getExporter(id)` li recupera.
 | `defaultFileName` | Es. `options.txt` |
 | `available` | `false` = disabilitato in UI (formato non pronto) |
 | `maps` | `ExporterMapMode`: `"all-in-one"` \| `"single"` \| `"per-map"` (vedi sotto) |
-| `image?` | Se `true`, `content` è markup SVG da rasterizzare in PNG lato UI |
+| `output?` | `ExporterOutput`: `"text"` (default) \| `"image"` (SVG da rasterizzare) \| `"image-zip"` (più SVG → archivio) |
 | `build(map, ctx)` | Esporta una singola mappa → `ExportResult` |
 | `buildAll?(maps, ctx)` | Richiesto per `maps === "all-in-one"`: esporta tutte le mappe in un file |
 
-`ExportResult`: `{ content, suggestedPath, warnings[], writtenLines }`. `ExportContext`:
+`ExportResult`: `{ content, suggestedPath, warnings[], writtenLines, images? }` (`images` solo per
+`"image-zip"`: `{ name, svg }[]`, dove `name` è il percorso DENTRO lo zip). `ExportContext`:
 `{ project, workpath, readExisting(absPath) }` (`readExisting` iniettata dalla UI per gli exporter
 che fanno merge).
 
@@ -53,6 +54,10 @@ Nel dialog ([`export-dialog.tsx`](../../../src/components/keybinds/export-dialog
 Con `per-map` + "All" la UI cicla `build` su ogni mappa e scrive un file per mappa: nella workpath,
 oppure in una **cartella** scelta con `openDialog({ directory: true })` (la destinazione diventa
 "Scegli cartella…"). Toast riepilogativo `exportSuccessMulti`.
+
+Il dialog **non si chiude cliccando fuori** (`onInteractOutside` con `preventDefault`): la
+configurazione ha più passaggi e un click di troppo a fianco la buttava via, o interrompeva un export
+già avviato. Restano la X e `Esc`.
 
 ### `options-txt` (attivo)
 
@@ -110,36 +115,79 @@ Il rendering è in [`keyboard-visual.ts`](../../../src/lib/keybind-export/keyboa
 Tastierino + Mouse, riquadri colorati per binding, un colore per mod):
 
 - **`buildKeyboardSvg(map, categories, labels?, opts?)`** → `{ svg, width, height, boundCount }`:
-  costruisce l'SVG (geometria in px: `UNIT=40`, `GAP=4`; `colorRectsPx` per i multi-binding 1/2/3/4).
-  Con `opts.legend = true` disegna sotto la tastiera una **legenda** (pastiglia colore → nome mod) per
-  le mod usate nella mappa — usata dall'export PNG. Ogni tasto espone `data-key` e `data-b` (lista
-  binding in JSON) per l'interazione al click.
-- **`buildKeyboardHtml(map, categories, labels?)`** → documento HTML autonomo: SVG inline + tooltip
-  nativi (`<title>`) + legenda **cliccabile** (mod e tag) che attenua i tasti non corrispondenti +
-  **finestra modale**: il clic su un tasto apre un riquadro con le **azioni e la mod** di quel tasto.
-  Tutto con CSS/JS incorporati (funziona offline, sola visualizzazione).
+  costruisce l'SVG. Geometria allineata alla pagina Keybinds (`KEY_SCALE = 1.35`): `UNIT=54`,
+  `GAP=5` (5.4 arrotondato per tenere le coordinate su numeri puliti); `colorRectsPx` per i
+  multi-binding 1/2/3/4. Il **testo non scala** come nella UI, ma l'azione va su **due righe**
+  (`wrapTwoLines`, l'equivalente del `line-clamp-2`) e il budget di caratteri si calcola dal corpo
+  usato (`maxCharsFor`), così lo spazio guadagnato serve a leggere più testo, non a ingrandirlo.
+  `opts.layer` seleziona il **livello** (numero = solo i suoi binding, coi tasti usati altrove marcati
+  dall'angolo piegato; `"all"` = tutti insieme, default → il PNG non cambia comportamento).
+  `opts.legend = true` disegna sotto la tastiera una **legenda** (pastiglia colore → nome mod) per le
+  mod usate nella mappa — usata dall'export PNG. `opts.interactive`/`opts.solo`/`opts.idPrefix`
+  servono all'HTML (vedi sotto). Ogni tasto espone `data-key` e `data-b` (lista binding in JSON, col
+  livello) per l'interazione al click.
+- **`buildKeyboardHtml(map, categories, labels?)`** → documento HTML autonomo, allineato alla UI:
+  - **un SVG per livello** più uno con tutti i livelli insieme, e un selettore in cima coi conteggi:
+    si guarda un livello per volta, come nella pagina Keybinds. Su una mappa a un livello solo (le
+    mappe salvate prima dei layer) il selettore non compare e resta la vista unica di prima.
+  - **filtri mod/tag che isolano** invece di attenuare: il tasto mostra solo i binding che
+    corrispondono, a colore pieno, e i tasti senza corrispondenze tornano "liberi". Come nella UI, con
+    un filtro attivo i livelli si appiattiscono (si passa alla vista "tutti") e una nota lo dice.
+  - **niente motore di disegno lato JS**: ogni tasto porta pre-renderizzati lo stato colorato (`.on`),
+    quello libero (`.off`) e un gruppo per binding (`.solo`, colore pieno su tutto il tasto); il CSS
+    scambia lo stato e il JS si limita a mettere le classi. Il file resta un artefatto statico.
+    Gli `idPrefix` per vista tengono unici gli id dei `clipPath` (più SVG nello stesso documento).
+  - tooltip nativi (`<title>`) e **finestra modale** al clic su un tasto, con azione, mod e livello.
+
+  Limite noto: filtrando per **tag**, se due mod filtrate insieme occupano lo stesso tasto la vista
+  isolata mostra la prima (la UI mostrerebbe due riquadri). La finestra al clic elenca comunque tutti i
+  binding del tasto, quindi non si perde informazione.
 
 Due exporter usano il modulo:
 
-| Exporter | File | `image` | Output |
-|----------|------|---------|--------|
-| `html-view` | [`html-view.ts`](../../../src/lib/keybind-export/html-view.ts) | — | `<mappa>.html` (testo) |
-| `image-png` | [`image-png.ts`](../../../src/lib/keybind-export/image-png.ts) | `true` | `<mappa>.png` (binario) |
+| Exporter | File | `output` | Output |
+|----------|------|----------|--------|
+| `html-view` | [`html-view.ts`](../../../src/lib/keybind-export/html-view.ts) | — (testo) | `<mappa>.html` |
+| `image-png` | [`image-png.ts`](../../../src/lib/keybind-export/image-png.ts) | `"image-zip"` | `<mappa>.zip` (binario) |
 
-Il flag **`image`** sul `KeybindExporter` segnala che `content` non è testo da scrivere ma il markup
-**SVG** da rasterizzare. La rasterizzazione avviene lato UI in
-[`export-dialog.tsx`](../../../src/components/keybinds/export-dialog.tsx) (`svgToPngBytes`): l'SVG è
-caricato in un `Image`, disegnato su un `canvas` (scala 2× per la nitidezza) e scritto come byte PNG
-via `writeFile` (richiede `fs:allow-write-file` nelle capabilities). Gli altri exporter usano
-`writeTextFile`.
+**`image-png` produce un ARCHIVIO**, non un singolo PNG:
+
+```
+<nome mappa>/
+  complete.png     ← tutti i livelli insieme (tasti condivisi a riquadri)
+  layer-1.png      ← un'immagine per livello
+  layer-2.png
+```
+
+Un PNG solo non basta più da quando la mappa ha i livelli: l'immagine completa mostra i tasti condivisi
+divisi in riquadri, mentre è la vista per livello che si legge — servono entrambe. Su una mappa a un
+livello solo l'archivio contiene la sola `complete.png` (`layer-1.png` sarebbe identica). Ogni immagine
+porta una **caption** in alto (`opts.caption`, es. "Tech & Armi — Layer 2"): senza, le tastiere dei vari
+livelli sarebbero distinguibili solo dal nome del file.
+
+`output` sul `KeybindExporter` dice alla UI come scrivere il risultato. Rasterizzazione e
+impacchettamento stanno lato UI in
+[`export-dialog.tsx`](../../../src/components/keybinds/export-dialog.tsx) — gli exporter restano
+**puri**, e il `canvas` esiste solo nel webview: `svgToPngBytes` carica l'SVG in un `Image`, lo disegna
+su un `canvas` (scala 2× per la nitidezza) ed estrae i byte PNG; poi
+[`zip-writer.ts`](../../../src/lib/zip-writer.ts) (`buildZip`) costruisce l'archivio e `writeFile` lo
+scrive (richiede `fs:allow-write-file` nelle capabilities). Gli exporter di testo usano `writeTextFile`.
+
+**`zip-writer.ts`** è ZIP scritto a mano, in TypeScript puro: solo metodo **STORE** (nessuna
+compressione), perché i PNG sono già compressi — deflate guadagnerebbe pochi punti percentuali e non
+vale una dipendenza npm in più né il passaggio dei byte al backend Rust. È **deterministico** (timestamp
+delle voci fisso: due export della stessa mappa danno un file identico), scrive i nomi in UTF-8 (bit 11
+dei flag, necessario per i nomi di mappa con accenti) e non supporta ZIP64 (limite a 4 GB per voce e
+65535 voci, ordini di grandezza sopra un export di immagini).
 
 ```mermaid
 flowchart LR
     Map["keybindMap"] --> Visual["keyboard-visual.ts"]
     Visual -->|buildKeyboardHtml| HTML["html-view → .html<br/>writeTextFile"]
-    Visual -->|buildKeyboardSvg| SVG["image-png → SVG"]
+    Visual -->|"buildKeyboardSvg<br/>(completo + per livello)"| SVG["image-png → images[]"]
     SVG --> Raster["export-dialog: svgToPngBytes<br/>Image → canvas → PNG"]
-    Raster --> Bin["writeFile → .png"]
+    Raster --> Zip["zip-writer: buildZip<br/>(STORE)"]
+    Zip --> Bin["writeFile → .zip"]
 ```
 
 ### `keyset` (attivo)
@@ -234,6 +282,5 @@ I binding "unbound" (senza tasto) sono ignorati in silenzio, non entrano nel rep
 |---------------------|-------------|
 | `not-installed` | La mod del binding non è tra quelle installate → scartato |
 | `unmapped` | Il tasto non è mappabile sul layout |
-| `overflow` | Oltre il limite di 4 binding per tasto |
 
 I binding con modificatori (SHIFT/CTRL/ALT) vengono ricostruiti come **macro**.

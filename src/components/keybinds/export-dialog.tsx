@@ -25,6 +25,8 @@ import { Button } from "../ui/button"
 import { Label } from "../ui/label"
 import { project, toastStyles } from "../../model/models"
 import { EXPORTERS, getExporter, ExportContext } from "../../lib/keybind-export"
+import { ExportResult } from "../../lib/keybind-export/types"
+import { buildZip, zipEntry } from "../../lib/zip-writer"
 import { useBusy } from "../../lib/use-busy"
 import { useTranslation } from "@/src/i18n/i18n-provider"
 
@@ -99,12 +101,25 @@ export function ExportDialog({
   // Esportazione multi-file (un file per mappa): solo "per-map" con "all".
   const isMultiFile = mapMode === "per-map" && effectiveSel === "all"
 
-  // Scrive un ExportResult su disco (testo o PNG rasterizzato) a `target`.
-  async function writeResult(target: string, res: { content: string }) {
-    if (exporter?.image) {
-      await writeFile(target, await svgToPngBytes(res.content))
-    } else {
-      await writeTextFile(target, res.content)
+  // Scrive un ExportResult su disco a `target`, secondo `exporter.output`:
+  // testo, PNG rasterizzato, oppure archivio ZIP di PNG (una immagine completa +
+  // una per livello). La rasterizzazione sta qui e non negli exporter perché il
+  // canvas esiste solo nel webview.
+  async function writeResult(target: string, res: ExportResult) {
+    switch (exporter?.output) {
+      case "image":
+        await writeFile(target, await svgToPngBytes(res.content))
+        break
+      case "image-zip": {
+        const entries: zipEntry[] = []
+        for (const img of res.images ?? []) {
+          entries.push({ name: img.name, data: await svgToPngBytes(img.svg) })
+        }
+        await writeFile(target, buildZip(entries))
+        break
+      }
+      default:
+        await writeTextFile(target, res.content)
     }
   }
 
@@ -189,7 +204,11 @@ export function ExportDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      {/* Il click fuori NON chiude: qui si configura un export in più passaggi
+          (formato → mappa → destinazione) e un click di troppo a fianco del
+          dialog buttava via la configurazione — o interrompeva un export già
+          avviato. Restano la X in alto a destra e Esc. */}
+      <DialogContent onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>{t("keybindIo.exportTitle")}</DialogTitle>
         </DialogHeader>

@@ -79,7 +79,6 @@ At the end of the import you see a summary with the reason:
 |--------|----------------|
 | **not-installed** | The mod for that command isn't installed → discarded |
 | **unmapped** | The key can't be represented on the app's keyboard |
-| **overflow** | The key already had 4 commands (the maximum) |
 
 Commands not assigned to any key are ignored and don't appear in the summary.
 

@@ -60,6 +60,26 @@ import { useTranslation } from "@/src/i18n/i18n-provider";
 // toggle va disabilitato.
 const NEOFORGE_MIN_MINOR = 20;
 
+// I datapack sono stati introdotti in Minecraft 1.13: prima non esistono, quindi
+// né il loader Datapack né la modalità ibrida hanno senso.
+const DATAPACK_MIN_MINOR = 13;
+
+/**
+ * True se la versione MC è più vecchia della minor richiesta, cioè se la
+ * feature non esiste ancora e il toggle va disabilitato.
+ *
+ * Ragiona solo sul vecchio schema "1.x" (dove la minor è la generazione del
+ * gioco); nei nuovi schemi di versioning (major != "1", es. "26.1") la feature
+ * esiste sempre. Senza versione scelta non si può decidere: disabilitato.
+ */
+function isBelowMcMinor(mcVersion: string | undefined, minMinor: number): boolean {
+  if (!mcVersion) return true;
+  const [major, minorStr] = mcVersion.split(".");
+  if (major !== "1") return false;
+  const minor = Number(minorStr);
+  return Number.isNaN(minor) || minor < minMinor;
+}
+
 // Tipi di risorsa selezionabili nella tabella Assets del progetto.
 const ASSET_TYPES = ["Resource Pack", "Shader Pack", "Data Pack", "Config", "Icon", "Splash", "Other"];
 
@@ -146,14 +166,10 @@ export default function Page() {
     }
   }, [effectiveLoader, forgeVersions, neoforgeVersions, fabricVersions, quiltVersions])
 
-  // NeoForge è disponibile solo da MC 1.20.1 in poi nel vecchio schema "1.x":
-  // lì serve minor >= 20. Nei nuovi schemi di versioning (major != "1",
-  // es. "26.1") NeoForge esiste sempre, quindi non va disabilitato.
-  const [mcMajor, mcMinorStr] = (mcVersion ?? "").split(".")
-  const mcMinor = Number(mcMinorStr)
-  const neoforgeDisabled =
-    !mcVersion ||
-    (mcMajor === "1" && (Number.isNaN(mcMinor) || mcMinor < NEOFORGE_MIN_MINOR))
+  // Loader non disponibili per la versione MC scelta: NeoForge esiste da 1.20.1,
+  // i datapack da 1.13.
+  const neoforgeDisabled = isBelowMcMinor(mcVersion, NEOFORGE_MIN_MINOR)
+  const datapackDisabled = isBelowMcMinor(mcVersion, DATAPACK_MIN_MINOR)
 
   // --- Bootstrap manifest all'avvio: carica da cache SQLite, scaricando dalle
   // API solo se la cache è assente o scaduta. Il ref evita il doppio fetch
@@ -195,6 +211,21 @@ export default function Page() {
     if (path === "modloader.type" && value !== modloaderTypes.DATAPACK) {
       updated = setByPath(updated, "modloader.hybrid", false);
       updated = setByPath(updated, "modloader.hybridLoader", undefined);
+    }
+    // Scendendo sotto MC 1.13 con un progetto Datapack (o ibrido) si otterrebbe
+    // una combinazione impossibile: i datapack non esistono ancora. Si torna al
+    // loader di default, avvisando perché la scelta è cambiata da sé.
+    if (
+      path === "modloader.mcversion" &&
+      projectState.project.modloader.type === modloaderTypes.DATAPACK &&
+      isBelowMcMinor(value, DATAPACK_MIN_MINOR)
+    ) {
+      updated = setByPath(updated, "modloader.type", modloaderTypes.FORGE);
+      updated = setByPath(updated, "modloader.hybrid", false);
+      updated = setByPath(updated, "modloader.hybridLoader", undefined);
+      toast.warning(t("dashboard.datapackUnavailable", { version: value }), {
+        position: "top-right", style: toastStyles.warning
+      });
     }
 
     dispatch(updateProject(updated));
@@ -445,12 +476,20 @@ export default function Page() {
                     <ToggleGroupItem
                       value={modloaderTypes.DATAPACK}
                       aria-label='Datapack'
+                      disabled={datapackDisabled}
                       className='flex size-32 flex-col items-center justify-center rounded-xl hover:bg-[#7cc04b] hover:border-[#7cc04b] data-[state=on]:border-[#7cc04b] border-2'
                     >
                       <Image src="/Datapack.png" width={80} height={80} alt="Datapack Logo" />
                       <span className="text-sm">Datapack</span>
                     </ToggleGroupItem>
                   </ToggleGroup>
+                  {/* Un toggle disabilitato senza spiegazione sembra un bug:
+                      diciamo da quale versione i datapack esistono. */}
+                  {datapackDisabled && mcVersion && (
+                    <p className='text-muted-foreground mt-2 text-xs'>
+                      {t("dashboard.datapackMinVersionHint")}
+                    </p>
+                  )}
                 </div>
 
                 {/* Controlli specifici Datapack: modalità ibrida + cartella datapack */}

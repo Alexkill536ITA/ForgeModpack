@@ -92,5 +92,11 @@ Vedi [11 — Documents](./11-documents-editor.md).
 | `mc-keycodes.ts` | Tasto ↔ input code Minecraft | [09](./09-keybind-io.md) |
 | `jvm.ts` | Flag JVM | [10](./10-jvm.md) |
 | `file-language.ts` | Linguaggio Monaco da estensione | [11](./11-documents-editor.md) |
+| `forge-spec.ts` | Hint di versione per la scansione (MC + Forge) | [06](./06-scansione.md) |
+| `mods-sync.ts` | Sincronizzazione mod/datapack col disco a ogni apertura | [06](./06-scansione.md) |
+| `new-project.ts` | Fabbrica del progetto vuoto (`emptyProject`) | [08](./08-keybinds.md) |
+| `zip-writer.ts` | Scrittura ZIP (STORE, pura) per l'export immagini | [09](./09-keybind-io.md) |
+| `use-busy.ts` | Hook dell'overlay bloccante | [04](./04-state-redux.md) |
+| `update-check.ts` | Confronto versione con le GitHub Releases | [12](./12-versioning-build.md) |
 | `line-diff.ts` | Diff per riga | questo |
 | `database.ts` / `utils.ts` / `monaco-setup.ts` | Utility | questo |

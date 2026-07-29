@@ -48,6 +48,8 @@
     "datapacksFolder": "Cartella datapack",
     "browse": "Sfoglia",
     "datapacksFolderHint": "Percorso assoluto. Lascia vuoto per usare <workpath>\\datapacks.",
+    "datapackMinVersionHint": "I datapack esistono da Minecraft 1.13: sulle versioni precedenti il loader Datapack non è disponibile.",
+    "datapackUnavailable": "Minecraft {version} non ha i datapack (esistono dalla 1.13): il modloader è stato riportato a Forge.",
     "assets": "Risorse",
     "asset": "Risorsa",
     "noAssets": "Nessuna risorsa.",
@@ -95,6 +97,15 @@
     "searchModsPlaceholder": "Cerca mod per nome, file, id o autore…",
     "searchDatapacksPlaceholder": "Cerca datapack per nome o file…",
     "noModsMatch": "Nessuna mod corrisponde a “{query}”.",
+    "noModsMatchFilters": "Nessuna mod corrisponde ai filtri selezionati.",
+    "mcVersion": "MC",
+    "incompatible": "Incompatibili",
+    "mcCompatible": "Dichiara Minecraft {constraint}, che comprende la {mc} del progetto.",
+    "mcIncompatible": "Dichiara Minecraft {constraint}, che non comprende la {mc} del progetto.",
+    "mcUnchecked": "Dichiara Minecraft {constraint}, in un formato che non è stato possibile verificare automaticamente.",
+    "filters": "Filtri",
+    "clearFilters": "Azzera filtri",
+    "sortBy": "Ordina per {column}",
     "noDatapacksMatch": "Nessun datapack corrisponde a “{query}”.",
     "on": "Attiva",
     "mod": "Mod",
@@ -184,8 +195,7 @@
     },
     "reason": {
       "notInstalled": "Mod non installata",
-      "unmapped": "Tasto non nel layout",
-      "overflow": "Oltre il limite di 4 per tasto"
+      "unmapped": "Tasto non nel layout"
     },
     "importReport": {
       "title": "Report di importazione",
@@ -197,7 +207,27 @@
       "colAction": "Azione",
       "colKey": "Tasto",
       "colProblem": "Problema"
-    }
+    },
+    "layers": "Livelli",
+    "layerN": "Livello {n}",
+    "allLayers": "Tutti i livelli",
+    "addLayer": "Aggiungi livello",
+    "addLayerTitle": "Aggiungi un livello",
+    "removeLayer": "Rimuovi livello",
+    "removeLayerTitle": "Rimuovi {layer} (è vuoto)",
+    "removeLayerBlocked": "Si può rimuovere solo un livello vuoto: sposta prima i suoi binding su un altro livello.",
+    "spread": "Distribuisci sui livelli",
+    "spreadTitle": "Sposta i binding che condividono un tasto su livelli separati, uno per livello.",
+    "alsoOnLayers": "Usato anche su: {layers}",
+    "isolatedByFilter": "Con un filtro attivo la tastiera mostra solo i binding che corrispondono, su tutti i livelli: gli altri restano segnati con l'angolo piegato.",
+    "alsoUsedBy": "Usato anche da: {mods}",
+    "noMacrosForFilter": "Nessuna macro corrisponde al filtro attivo.",
+    "allProfilesConfirmTitle": "Applicare a tutte le mappe?",
+    "allProfilesConfirmMessage": "Il tasto {key} verrà sovrascritto in tutte le {maps} mappe, non solo in quella corrente. Non è annullabile.",
+    "layer": "Livello",
+    "newLayer": "Nuovo livello",
+    "layerSelectHint": "Ogni binding sta su un livello: scegli quale dall'elenco, così il tasto mostra un'azione per livello.",
+    "sameLayerWarning": "Due o più binding stanno sullo stesso livello ({layers}): là il tasto risulterà diviso in riquadri."
   },
   "keybindIo": {
     "exportTitle": "Esporta keybind",
@@ -223,8 +253,7 @@
     "noFileInProjectFolder": "Nessun {defaultFileName} trovato nella cartella del progetto.",
     "importDescription": "I profili diventano mappe di keybind. Le mappe con lo stesso nome vengono sostituite; le mod mancanti vengono aggiunte automaticamente.",
     "reasonNotInstalled": "{count} associazioni per mod non installate sono state ignorate.",
-    "reasonUnmapped": "{count} tasti non hanno potuto essere mappati sul layout e sono stati ignorati.",
-    "reasonOverflow": "{count} associazioni hanno superato il limite di 4 per tasto e sono state ignorate."
+    "reasonUnmapped": "{count} tasti non hanno potuto essere mappati sul layout e sono stati ignorati."
   },
   "jvm": {
     "memoryParameters": "Parametri di memoria",

@@ -25,6 +25,10 @@ export interface ImportedMap {
   name: string
   keybinds: keybind[]
   macros: macro[] // binding con modificatori (SHIFT/CTRL/ALT) ricostruiti come macro
+  // Quanti livelli servono alla mappa: l'import distribuisce i binding che
+  // condividono un tasto su livelli separati (uno per livello), così la tastiera
+  // non nasce con i tasti divisi in riquadri di colori diversi.
+  layerCount: number
 }
 
 // Motivo per cui un binding è stato saltato durante l'import. I binding "unbound"
@@ -32,8 +36,7 @@ export interface ImportedMap {
 // silenzio, non compaiono nel report.
 //  - not-installed: la mod del binding non è tra quelle installate → scartato.
 //  - unmapped: il tasto non è mappabile sul layout.
-//  - overflow: oltre il limite di 4 binding per tasto.
-export type ImportIssueReason = "not-installed" | "unmapped" | "overflow"
+export type ImportIssueReason = "not-installed" | "unmapped"
 
 // Un singolo binding problematico (riga della tabella dettagliata in pagina).
 export interface ImportIssue {

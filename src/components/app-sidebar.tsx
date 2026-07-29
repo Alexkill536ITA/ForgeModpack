@@ -28,7 +28,7 @@ import { Badge } from "./ui/badge"
 import { useAppDispatch, useAppSelector } from "../redux/hooks"
 import { loadProject, markSaved, updateProject } from "../redux/project-slice"
 import { open, save } from "@tauri-apps/plugin-dialog"
-import { defaultJvmSettings, modloaderTypes, project, toastStyles } from "../model/models"
+import { defaultJvmSettings, project, toastStyles } from "../model/models"
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs"
 import { join, dirname, basename } from "@tauri-apps/api/path"
 import { toast } from "sonner"
@@ -36,6 +36,7 @@ import { useConfirm } from "../providers/confirm-dialog-provider"
 import { useUpdateCheck } from "../providers/update-provider"
 import { exit } from "@tauri-apps/plugin-process"
 import { setByPath } from "../lib/json-data"
+import { emptyProject } from "../lib/new-project"
 import { useTranslation } from "@/src/i18n/i18n-provider"
 
 // ============================================================================
@@ -136,19 +137,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     if (!workpath) return
 
     clearProject()
-    dispatch(loadProject({
-      metadata: { name: "", version: "", description: "" },
-      modloader: { mcversion: "", type: modloaderTypes.FORGE, version: "" },
-      assetes: [],
-      notes: [],
-      mods: [],
-      datapacks: [],
-      keybindMaps: [],
-      keybindCategories: [],
-      keybindTags: [],
-      jvm: defaultJvmSettings(),
-      configs: { workpath },
-    }))
+    dispatch(loadProject(emptyProject(workpath)))
   }
 
   const openProject = async (): Promise<void> => {

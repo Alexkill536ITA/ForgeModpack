@@ -83,7 +83,6 @@ Al termine dell'import vedi un riepilogo con il motivo:
 |--------|----------------|
 | **not-installed** | La mod di quel comando non è installata → scartato |
 | **unmapped** | Il tasto non è rappresentabile sulla tastiera dell'app |
-| **overflow** | Il tasto aveva già 4 comandi (massimo) |
 
 I comandi non assegnati a nessun tasto vengono ignorati e non compaiono nel riepilogo.
 

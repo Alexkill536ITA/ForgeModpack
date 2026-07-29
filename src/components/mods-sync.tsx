@@ -25,18 +25,18 @@ import { useBusy } from "../lib/use-busy"
 import { useTranslation } from "@/src/i18n/i18n-provider"
 
 /**
- * Componente headless montato nel layout: **a ogni apertura di progetto** rilegge
+ * Componente headless montato nel layout: a ogni apertura di progetto rilegge
  * dal disco le mod e i datapack e aggiorna il project, così le liste non restano
  * congelate a quando il progetto è stato salvato (mod rimosse, aggiunte o
  * aggiornate fuori dall'app si vedono subito). Vive nel layout perché la
  * sincronizzazione non deve dipendere dalla pagina aperta.
  *
- * Il `project` viene aggiornato **solo se qualcosa è davvero cambiato**: così non
+ * Il `project` viene aggiornato solo se qualcosa è davvero cambiato: così non
  * compare la SaveBar a vuoto. Quando cambia, un toast dice cosa è cambiato.
  * Nella stessa apertura le letture successive (pagine, refresh) riusano la cache
  * SQLite: vedi [`mods-sync.ts`](../lib/mods-sync.ts).
  *
- * Le guardie `appliedFor` sono controllate e impostate **dopo** l'await, non
+ * Le guardie `appliedFor` sono controllate e impostate dopo l'await, non
  * prima: in dev React StrictMode invoca l'effect due volte e una guardia messa
  * prima farebbe scartare l'unico lavoro avviato. Così invece le due invocazioni
  * condividono la stessa scansione (dedup in `mods-sync.ts`) e solo la prima che

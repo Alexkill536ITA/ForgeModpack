@@ -18,7 +18,7 @@ const APPEAR_DELAY_MS = 250
 /**
  * Overlay di caricamento globale: compare durante le operazioni pesanti
  * (scansione dei jar, risoluzione keybind, export, download dei manifest) e
- * **blocca l'interazione**, così l'utente non può cambiare progetto o pagina a
+ * blocca l'interazione, così l'utente non può cambiare progetto o pagina a
  * metà lavoro lasciando il risultato da applicare a uno stato che non esiste più.
  *
  * Montato una sola volta nel layout. La sorgente è lo slice runtime `busy`, che si

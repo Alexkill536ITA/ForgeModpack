@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
-import { KeyboardIcon, MouseIcon, PlusIcon, Trash2Icon, MapIcon, XIcon, PencilIcon, SearchIcon, BoxesIcon, TagsIcon, DownloadIcon, UploadIcon, RefreshCcwIcon, ZapIcon, LayersIcon } from "lucide-react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
+import { KeyboardIcon, MouseIcon, PlusIcon, Trash2Icon, MapIcon, XIcon, PencilIcon, SearchIcon, BoxesIcon, TagsIcon, DownloadIcon, UploadIcon, RefreshCcwIcon, ZapIcon, LayersIcon, CopyIcon } from "lucide-react"
 
 import { ProjectGate } from "../../components/project-gate"
 import { ExportDialog } from "../../components/keybinds/export-dialog"
@@ -18,6 +18,8 @@ import {
 } from "../../components/ui/table"
 import { Button } from "../../components/ui/button"
 import { Input } from "../../components/ui/input"
+import { ScrollArea, ScrollBar } from "../../components/ui/scroll-area"
+import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip"
 import { Label } from "../../components/ui/label"
 import {
   Dialog,
@@ -76,16 +78,32 @@ import {
 } from "../../lib/keyboard-layout"
 import { defaultKeybinds, defaultCategories, defaultTags, vanillaActions } from "../../lib/keybind-template"
 import { useTranslation } from "@/src/i18n/i18n-provider"
+import { useConfirm } from "../../providers/confirm-dialog-provider"
 
-const UNIT_REM = 2.5
-const GAP_REM = 0.25
+// Scala della tastiera. Un tasto base era 2.5rem (40px): troppo piccolo perché
+// l'azione dentro il tasto stesse su due righe leggibili. Le misure della
+// GRIGLIA (unità, gap, decorazioni del tasto) derivano da qui, così cambiando una
+// sola costante si ingrandisce tutto insieme: scalarne solo una parte sfalserebbe
+// `keyWidth` (che somma unità + gap) e i tasti larghi non starebbero più
+// allineati alla griglia. I CORPI DEL TESTO restano fissi (vedi `KeyCap`): il
+// tasto più grande serve a dare spazio all'azione, non a scriverla più grande.
+const KEY_SCALE = 1.3
+const UNIT_REM = 2.5 * KEY_SCALE
+const GAP_REM = 0.25 * KEY_SCALE
+
+/** Misura in px scalata come la griglia (decorazioni del tasto, non il testo). */
+function scaledPx(base: number): string {
+  return `${Math.round(base * KEY_SCALE * 100) / 100}px`
+}
+
+/** Spaziatura fra i tasti, in sync con `GAP_REM` (la usa anche `keyWidth`). */
+const KEY_GAP_STYLE = { gap: `${GAP_REM}rem` }
 
 // Mappa il motivo di scarto in import alla sotto-chiave i18n (risolta con t() al
 // punto d'uso: t non può essere chiamata a livello modulo).
 const REASON_KEY: Record<ImportIssueReason, string> = {
   "not-installed": "notInstalled",
   unmapped: "unmapped",
-  overflow: "overflow",
 }
 
 // Categorie NON-mod: solo queste mostrano le azioni vanilla nel dialog dei tasti
@@ -131,7 +149,7 @@ function FilterChip({
     <div
       style={active && color ? { background: color, color: contrastText(color), borderColor: "transparent" } : {}}
       className={cn(
-        "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+        "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors",
         !active && "border-border",
         active && !color && "border-transparent bg-foreground text-background"
       )}
@@ -149,8 +167,99 @@ function FilterChip({
   )
 }
 
-// Massimo numero di binding assegnabili a un singolo tasto.
-const MAX_BINDINGS = 4
+/**
+ * Striscia di chip su **due righe al massimo**, con scorrimento orizzontale.
+ *
+ * Serve alla barra dei filtri del blocco Keybinds, che sta **sopra la tastiera**:
+ * lì una striscia a capo libero spingeva la tastiera fuori dallo schermo. La
+ * griglia `grid-flow-col` + `grid-rows-2` riempie due righe e poi cresce **in
+ * larghezza** — l'altezza è quindi limitata per costruzione, e l'eccedenza si
+ * raggiunge scorrendo in orizzontale.
+ *
+ * Lo scorrimento è una **`ScrollArea`** (convenzione del progetto: le aree
+ * scrollabili sono sempre `ScrollArea`, non `overflow-*` nativo), con la
+ * `ScrollBar orientation="horizontal"` esplicita: il default del componente è
+ * verticale. Il `pb-2.5` lascia alla barra lo spazio per non coprire i chip.
+ *
+ * NON è usata dalle card Mods/Tags in cima: quelle sono la lista di gestione del
+ * progetto e vanno viste tutte in una volta, a capo libero.
+ *
+ * `label` e `leading` restano FUORI dall'area che scorre: l'etichetta della
+ * striscia e il chip di reset ("Tutte") devono essere raggiungibili sempre, senza
+ * tornare indietro con lo scroll.
+ */
+function ChipStrip({
+  label, leading, children,
+}: {
+  label: string
+  leading?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="w-10 shrink-0 pt-1 text-xs text-muted-foreground">{label}</span>
+      {leading}
+      <ScrollArea className="min-w-0 flex-1">
+        <div className="grid w-max grid-flow-col grid-rows-2 items-center gap-2 pb-2.5">
+          {children}
+        </div>
+        <ScrollBar orientation="horizontal" />
+      </ScrollArea>
+    </div>
+  )
+}
+
+// Nessun massimo di binding per tasto: si distribuiscono sui livelli (uno per
+// livello), e i livelli sono illimitati.
+
+// ============================================================================
+// LAYER (livelli della mappa)
+// ============================================================================
+//
+// Un tasto può servire più azioni, ma mostrarle tutte insieme rende la tastiera
+// illeggibile (tasti divisi in riquadri di colori diversi). I layer sono
+// lucidi sovrapposti DENTRO la stessa mappa: si guarda un livello per volta e su
+// ogni tasto compare un solo binding, a colore pieno. Il segno in alto a destra
+// del tasto dice che lo stesso tasto è usato anche su altri livelli.
+
+// Nessun limite al numero di livelli (né di binding per tasto): l'unico vincolo
+// è che un livello parta da 1.
+
+// Valore del selettore quando si vogliono vedere tutti i livelli insieme
+// (vista "appiattita"): allora il tasto torna a dividersi in riquadri.
+const ALL_LAYERS = "all" as const
+type layerSelection = number | typeof ALL_LAYERS
+
+/** Livello di un binding: assente o non valido = 1 (progetti pre-layer). */
+function layerOf(binding: { layer?: number }): number {
+  const n = binding.layer ?? 1
+  return Number.isInteger(n) && n >= 1 ? n : 1
+}
+
+/**
+ * Quanti livelli ha la mappa: il valore dichiarato, ma mai meno di quanti ne
+ * servano ai binding già presenti (un import o una modifica a mano potrebbero
+ * aver messo dei binding su livelli più alti di `layerCount`).
+ */
+function layerCountOf(map: keybindMap | undefined): number {
+  if (!map) return 1
+  const used = map.keybinds.reduce((max, kb) => Math.max(max, layerOf(kb)), 1)
+  return Math.max(map.layerCount ?? 1, used)
+}
+
+// Riga del dialog di un tasto: come un keybind ma senza `key` (è il tasto in
+// modifica) e con un `id` stabile, che serve al drag & drop tra livelli.
+type draftBinding = {
+  id: string
+  action: string
+  actionKey?: string
+  category: string
+  layer: number
+}
+
+// Valore della voce "nuovo livello" nella Select del livello: non è un numero,
+// quindi non può collidere con un livello esistente.
+const NEW_LAYER_VALUE = "new"
 
 // I tasti modificatori non hanno senso come tasto BASE di una macro: esclusi dal
 // selettore (il modificatore è scelto a parte).
@@ -187,12 +296,17 @@ function colorRects(colors: string[]): { top: string; left: string; width: strin
 }
 
 function KeyCap({
-  def, bindings, dimmed, onClick,
+  def, bindings, onClick, hiddenLabel,
 }: {
   def: KeyDef
   bindings: { action: string; color: string; category: string }[]
-  dimmed: boolean
   onClick: () => void
+  /**
+   * Etichetta dei binding del tasto NON mostrati nella vista corrente (su un
+   * altro livello, o esclusi dal filtro attivo). Presente = si disegna l'angolo
+   * piegato e il testo finisce nel tooltip; assente = nessun binding nascosto.
+   */
+  hiddenLabel?: string
 }) {
   const w = def.w ?? 1
   const styled = bindings.length > 0
@@ -201,15 +315,11 @@ function KeyCap({
   // Un solo binding: testo a contrasto sul colore. Più binding: testo chiaro con
   // ombra, leggibile sopra qualsiasi riquadro di colore.
   const textColor = bindings.length === 1 ? contrastText(bindings[0].color) : "#faf9f5"
-  const title = styled
-    ? `${bindings.map((b) => `${b.action} — ${b.category}`).join("\n")}\n(${def.label})`
-    : def.label
 
-  return (
+  const cap = (
     <button
       type="button"
       onClick={onClick}
-      title={title}
       style={{
         width: keyWidth(w),
         height: def.tall ? `calc(2 * ${UNIT_REM}rem + ${GAP_REM}rem)` : `${UNIT_REM}rem`,
@@ -219,8 +329,7 @@ function KeyCap({
       }}
       className={cn(
         "relative flex shrink-0 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-md border px-0.5 text-center transition-transform hover:z-10 hover:scale-105",
-        !styled && "border-border bg-muted text-muted-foreground",
-        dimmed && "opacity-20"
+        !styled && "border-border bg-muted text-muted-foreground"
       )}
     >
       {/* Strato dei riquadri colorati (uno per binding) */}
@@ -235,7 +344,24 @@ function KeyCap({
           ))}
         </span>
       )}
+      {/* Segno "ci sono binding nascosti": angolo piegato in alto a destra, come
+          la punta di un foglio sotto. Serve a non perdere di vista i binding che
+          la vista corrente non mostra (altro livello, o filtro attivo), senza
+          sporcare il tasto di puntini. */}
+      {hiddenLabel && (
+        <span
+          aria-hidden
+          style={{ borderTopWidth: scaledPx(10), borderLeftWidth: scaledPx(10) }}
+          className={cn(
+            "pointer-events-none absolute top-0 right-0 z-20 border-l-transparent",
+            styled ? "border-t-current opacity-70" : "border-t-foreground/50"
+          )}
+        />
+      )}
       {/* Contenuto sopra i riquadri */}
+      {/* I corpi del testo NON scalano con `KEY_SCALE`: il tasto più grande serve
+          a dare spazio all'azione (più caratteri per riga, due righe intere), non
+          a scrivere più in grande. */}
       <span className="relative z-10 flex flex-col items-center justify-center">
         {multi ? (
           <>
@@ -251,22 +377,62 @@ function KeyCap({
       </span>
     </button>
   )
+
+  // Tasto vuoto e senza binding nascosti: nessun tooltip, ripeterebbe soltanto
+  // l'etichetta già scritta sul tasto (e sarebbero ~100 tooltip inutili).
+  if (!styled && !hiddenLabel) return cap
+
+  // Tooltip vero (Radix) invece del `title` nativo: quello arrivava dopo un
+  // secondo, con il font di sistema e le righe separate da "\n", e sul tasto —
+  // dove l'azione è troncata a due righe di 9px — è proprio il punto in cui serve
+  // leggere per intero. Qui invece ogni binding ha il pallino del colore della
+  // sua mod, così il tooltip spiega anche i riquadri del tasto.
+  return (
+    <Tooltip delayDuration={250}>
+      <TooltipTrigger asChild>{cap}</TooltipTrigger>
+      <TooltipContent
+        side="top"
+        sideOffset={6}
+        className="flex max-w-sm flex-col items-start gap-1.5 px-3 py-2 text-sm"
+      >
+        {styled && (
+          <div className="flex flex-col gap-1.5">
+            {bindings.map((b, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="size-2.5 shrink-0 rounded-full" style={{ background: b.color }} />
+                <span className="font-medium">{b.action}</span>
+                <span className="text-xs opacity-60">{b.category}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {hiddenLabel && <span className="text-xs opacity-70">{hiddenLabel}</span>}
+        <span className="text-xs opacity-50">{def.label}</span>
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 function KeybindsBoard({ project }: { project: project }) {
   const dispatch = useAppDispatch()
   const { t } = useTranslation()
+  // Conferma per l'unica azione che scrive su mappe diverse da quella attiva.
+  const { confirm } = useConfirm()
 
   const [activeMap, setActiveMap] = useState(0)
   const [modFilter, setModFilter] = useState("all")
   const [tagFilter, setTagFilter] = useState("all")
   const [search, setSearch] = useState("")
+  // Livello mostrato sulla tastiera (1 = primo livello, "all" = tutti insieme).
+  const [activeLayer, setActiveLayer] = useState<layerSelection>(1)
 
-  // Dialog binding: lista di righe (fino a MAX_BINDINGS) azione + mod.
+  // Dialog binding: una riga per binding con azione, mod e livello (nessun
+  // massimo). `id` è stabile per il drag & drop tra livelli.
   const [editing, setEditing] = useState<KeyDef | null>(null)
-  const [draftBindings, setDraftBindings] = useState<
-    { action: string; actionKey?: string; category: string }[]
-  >([])
+  const [draftBindings, setDraftBindings] = useState<draftBinding[]>([])
+  // Livelli visibili nel dialog: possono superare quelli della mappa quando
+  // l'utente ne crea uno nuovo da lì (viene salvato col binding).
+  const [draftLayers, setDraftLayers] = useState(1)
 
   // Dialog Add/Edit Mod (editingMod = nome originale in modifica, null in aggiunta).
   const [modOpen, setModOpen] = useState(false)
@@ -304,13 +470,14 @@ function KeybindsBoard({ project }: { project: project }) {
   const categories = project.keybindCategories
   const tags = project.keybindTags
   const current = maps[activeMap] as keybindMap | undefined
-  // Un tasto può avere più binding: raggruppo per `key` (max MAX_BINDINGS).
+  // Un tasto può avere più binding (uno per livello): raggruppo per `key`.
   const bindingsByKey = new Map<string, keybind[]>()
   for (const kb of current?.keybinds ?? []) {
     const arr = bindingsByKey.get(kb.key)
     if (arr) arr.push(kb)
     else bindingsByKey.set(kb.key, [kb])
   }
+  const layerCount = layerCountOf(current)
   const categoryOf = (name: string) => categories.find((c) => c.name === name)
   const colorOf = (name: string) => categoryOf(name)?.color ?? "#888888"
 
@@ -435,13 +602,62 @@ function KeybindsBoard({ project }: { project: project }) {
   }
 
   const query = search.trim().toLowerCase()
-  function matchesFilters(binding?: keybind): boolean {
-    if (!binding) return modFilter === "all" && tagFilter === "all" && !query
+  // Vale sia per i keybind sia per le macro: serve solo azione + categoria. Non
+  // esiste più il caso "tasto vuoto" (prima serviva per attenuarlo): nella vista
+  // isolata un tasto senza binding che corrispondono resta semplicemente vuoto.
+  function matchesFilters(binding: { action: string; category: string }): boolean {
     if (modFilter !== "all" && binding.category !== modFilter) return false
     if (tagFilter !== "all" && !(categoryOf(binding.category)?.tags ?? []).includes(tagFilter)) return false
     if (query && !binding.action.toLowerCase().includes(query)) return false
     return true
   }
+  // Almeno un filtro attivo (mod, tag o ricerca) → la tastiera passa alla vista
+  // ISOLATA: vedi `renderKey`.
+  const filtersActive = modFilter !== "all" || tagFilter !== "all" || !!query
+
+  // Mod e tag da OFFRIRE nelle barre di filtro: solo quelli davvero presenti nella
+  // mappa attiva (binding o macro). Le categorie sono di progetto, quindi la lista
+  // completa conteneva mod che in questa mappa non hanno un solo tasto: filtrarci
+  // dava una tastiera vuota, e su un modpack grosso il chip giusto era sepolto tra
+  // decine di inutili. Il valore SELEZIONATO resta sempre in lista anche se non è
+  // in uso (succede cambiando mappa): un filtro attivo e invisibile non si
+  // potrebbe più togliere.
+  const usedInMap = new Set<string>([
+    ...(current?.keybinds ?? []).map((kb) => kb.category),
+    ...(current?.macros ?? []).map((mc) => mc.category),
+  ])
+  const filterCategories = categories.filter((c) => usedInMap.has(c.name) || c.name === modFilter)
+  const filterTags = tags.filter(
+    (tg) =>
+      tg.name === tagFilter ||
+      categories.some((c) => usedInMap.has(c.name) && (c.tags ?? []).includes(tg.name))
+  )
+
+  // --- Layer: cosa si vede sulla tastiera ---
+  //
+  // Livello effettivo: cambiando mappa quello selezionato può non esistere più
+  // (mappe diverse hanno un numero di livelli diverso), e la tastiera
+  // risulterebbe vuota senza spiegazione → si ricade sul primo.
+  const effectiveLayer: layerSelection =
+    activeLayer === ALL_LAYERS || activeLayer <= layerCount ? activeLayer : 1
+  //
+  // Con un filtro attivo i livelli si appiattiscono da soli: stai già guardando
+  // un sottoinsieme piccolo (una mod, un tag, una ricerca), quindi vederlo
+  // spezzato su più livelli sarebbe solo un ostacolo — e nella vista isolata il
+  // tasto mostra comunque un colore solo, quindi non c'è nulla da separare.
+  const flattened = effectiveLayer === ALL_LAYERS || filtersActive
+  /** Binding del tasto da MOSTRARE, secondo il livello selezionato. */
+  function shownBindings(all: keybind[]): keybind[] {
+    return flattened ? all : all.filter((kb) => layerOf(kb) === effectiveLayer)
+  }
+  /** Livelli occupati da un tasto, in ordine (per il segno sul KeyCap). */
+  function layersOf(all: keybind[]): number[] {
+    return [...new Set(all.map(layerOf))].sort((a, b) => a - b)
+  }
+  const layerName = (n: number) => t("keybinds.layerN", { n })
+  // Quanti binding vivono su ciascun livello della mappa (badge nella lista).
+  const perLayerCount = (n: number) =>
+    (current?.keybinds ?? []).filter((kb) => layerOf(kb) === n).length
 
   // --- Mappe ---
   function openAddMap() {
@@ -464,6 +680,9 @@ function KeybindsBoard({ project }: { project: project }) {
       commit({ ...project, keybindMaps })
     } else {
       // Nuova mappa pre-popolata dal template (azioni + categorie di default).
+      // I tag di default arrivano già con il progetto (`emptyProject`): la fusione
+      // qui resta come rete di sicurezza per i progetti creati prima, che hanno
+      // `keybindTags` vuoto. Il filtro sui nomi esistenti evita i duplicati.
       const keybindMaps = [...maps, { name, keybinds: defaultKeybinds() }]
       const existingCategories = new Set(categories.map((c) => c.name))
       const existingTags = new Set(tags.map((c) => c.name))
@@ -487,49 +706,141 @@ function KeybindsBoard({ project }: { project: project }) {
   }
 
   // --- Binding ---
+  // Contatore per gli `id` dei draft: servono stabili per il drag & drop, e
+  // l'indice nell'array non lo è (cambia quando si rimuove una riga).
+  const draftIdRef = useRef(0)
+  const newDraftId = () => `d${++draftIdRef.current}`
+
   function openKey(def: KeyDef) {
     const existing = bindingsByKey.get(def.id) ?? []
     setEditing(def)
     setDraftBindings(
       existing.length > 0
-        ? existing.map((kb) => ({ action: kb.action, actionKey: kb.actionKey, category: kb.category }))
-        : [{ action: "", actionKey: undefined, category: categories[0]?.name ?? "" }]
+        ? existing.map((kb) => ({
+            id: newDraftId(),
+            action: kb.action,
+            actionKey: kb.actionKey,
+            category: kb.category,
+            layer: layerOf(kb),
+          }))
+        : [
+            {
+              id: newDraftId(),
+              action: "",
+              actionKey: undefined,
+              category: categories[0]?.name ?? "",
+              // Un binding nuovo nasce sul livello che si sta guardando: è quello
+              // che l'utente si aspetta di riempire cliccando il tasto.
+              layer: effectiveLayer === ALL_LAYERS ? 1 : effectiveLayer,
+            },
+          ]
+    )
+    // Nel dialog si vedono almeno i livelli della mappa (e quelli usati dal tasto).
+    setDraftLayers(
+      Math.max(layerCount, ...existing.map(layerOf), effectiveLayer === ALL_LAYERS ? 1 : effectiveLayer)
     )
   }
-  function addDraftBinding() {
-    setDraftBindings((prev) =>
-      prev.length >= MAX_BINDINGS
-        ? prev
-        : [...prev, { action: "", actionKey: undefined, category: categories[0]?.name ?? "" }]
-    )
+  /** Aggiunge una riga sul livello indicato (il primo libero se non specificato). */
+  function addDraftBinding(layer?: number) {
+    setDraftBindings((prev) => {
+      const target =
+        layer ??
+        // Primo livello libero: evita di impilare due binding sullo stesso.
+        Array.from({ length: draftLayers }, (_, i) => i + 1).find(
+          (n) => !prev.some((b) => b.layer === n)
+        ) ??
+        // Tutti occupati: se ne apre uno in più.
+        draftLayers + 1
+      return [
+        ...prev,
+        {
+          id: newDraftId(),
+          action: "",
+          actionKey: undefined,
+          category: categories[0]?.name ?? "",
+          layer: target,
+        },
+      ]
+    })
   }
   function updateDraftBinding(
-    index: number,
-    patch: Partial<{ action: string; actionKey?: string; category: string }>
+    id: string,
+    patch: Partial<{ action: string; actionKey?: string; category: string; layer: number }>
   ) {
-    setDraftBindings((prev) => prev.map((b, i) => (i === index ? { ...b, ...patch } : b)))
+    setDraftBindings((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)))
   }
-  function removeDraftBinding(index: number) {
-    setDraftBindings((prev) => prev.filter((_, i) => i !== index))
+  function removeDraftBinding(id: string) {
+    setDraftBindings((prev) => prev.filter((b) => b.id !== id))
+  }
+  /**
+   * Livello scelto dalla Select. Il valore speciale `NEW_LAYER_VALUE` apre un
+   * livello in più e ci sposta il binding, così non serve un bottone a parte.
+   * Due binding sullo stesso livello sono ammessi (nessuno scambio automatico:
+   * con una Select vedere muoversi un'altra riga sarebbe inspiegabile) e la
+   * cosa viene segnalata sotto la lista.
+   */
+  function setDraftLayer(id: string, value: string) {
+    if (value === NEW_LAYER_VALUE) {
+      setDraftLayers((prev) => {
+        const next = prev + 1
+        setDraftBindings((rows) => rows.map((b) => (b.id === id ? { ...b, layer: next } : b)))
+        return next
+      })
+      return
+    }
+    const layer = Number(value)
+    if (!Number.isInteger(layer) || layer < 1) return
+    updateDraftBinding(id, { layer })
   }
   // Binding validi correnti del dialog, legati al tasto in modifica.
   function draftToKeybinds(keyId: string): keybind[] {
     return draftBindings
       .filter((b) => b.action.trim() && b.category)
-      .slice(0, MAX_BINDINGS)
       .map((b) => ({
         key: keyId,
         action: b.action.trim(),
         category: b.category,
         ...(b.actionKey ? { actionKey: b.actionKey } : {}),
+        // `layer` sempre scritto (anche 1): rende espliciti i dati salvati da
+        // qui, mentre l'assenza resta il default dei progetti più vecchi.
+        layer: b.layer,
       }))
   }
   function saveBinding() {
     if (!editing || !current) return
     // Rimuovo tutti i binding del tasto e riaggiungo quelli con azione valida.
     const kept = current.keybinds.filter((kb) => kb.key !== editing.id)
-    commitKeybinds([...kept, ...draftToKeybinds(editing.id)])
+    const added = draftToKeybinds(editing.id)
+    const keybinds = [...kept, ...added]
+    // I livelli creati nel dialog restano nella mappa anche se ancora vuoti.
+    const keybindMaps = maps.map((m, i) =>
+      i === activeMap
+        ? { ...m, keybinds, layerCount: Math.max(layerCountOf(m), draftLayers) }
+        : m
+    )
+    commit({ ...project, keybindMaps })
     setEditing(null)
+  }
+  /**
+   * Chiede conferma prima di scrivere su TUTTE le mappe: è l'unica azione della
+   * pagina che tocca mappe che non stai guardando, e sovrascrive quel tasto in
+   * ognuna. Senza conferma un click di troppo rende tutte le mappe uguali, e non
+   * c'è un annulla.
+   */
+  async function confirmSaveToAllMaps() {
+    if (!editing) return
+    if (maps.length > 1) {
+      const ok = await confirm({
+        type: "warning",
+        title: t("keybinds.allProfilesConfirmTitle"),
+        message: t("keybinds.allProfilesConfirmMessage", {
+          key: editing.label,
+          maps: maps.length,
+        }),
+      })
+      if (ok !== true) return
+    }
+    saveBindingToAll()
   }
   // Applica i binding correnti del tasto a TUTTE le mappe/profili (non solo a
   // quella attiva). Le categorie sono condivise a livello di progetto, quindi
@@ -540,6 +851,7 @@ function KeybindsBoard({ project }: { project: project }) {
     const keybindMaps = maps.map((m) => ({
       ...m,
       keybinds: [...m.keybinds.filter((kb) => kb.key !== editing.id), ...added],
+      layerCount: Math.max(layerCountOf(m), draftLayers),
     }))
     commit({ ...project, keybindMaps })
     setEditing(null)
@@ -549,6 +861,63 @@ function KeybindsBoard({ project }: { project: project }) {
     commitKeybinds(current.keybinds.filter((kb) => kb.key !== editing.id))
     setEditing(null)
   }
+
+  // --- Layer della mappa ---
+  function commitLayerCount(count: number) {
+    if (!current) return
+    const keybindMaps = maps.map((m, i) => (i === activeMap ? { ...m, layerCount: count } : m))
+    commit({ ...project, keybindMaps })
+  }
+  function addLayer() {
+    if (!current) return
+    const next = layerCount + 1
+    commitLayerCount(next)
+    setActiveLayer(next)
+  }
+  /**
+   * Rimuove l'ULTIMO livello, solo se è vuoto. Cancellare un livello pieno
+   * significherebbe buttare via dei binding senza che si veda cosa si perde: per
+   * svuotarlo si trascinano i suoi binding altrove dall'editor del tasto.
+   */
+  function removeLastLayer() {
+    if (!current || layerCount <= 1 || perLayerCount(layerCount) > 0) return
+    const next = layerCount - 1
+    commitLayerCount(next)
+    if (effectiveLayer === ALL_LAYERS || effectiveLayer > next) setActiveLayer(next)
+  }
+  /**
+   * Distribuisce sui livelli i binding che condividono lo stesso tasto: il primo
+   * resta dov'è, gli altri finiscono sui livelli successivi. Serve ai progetti
+   * nati prima dei layer, dove tutto sta sul livello 1 e i tasti risultano
+   * divisi in riquadri ("arlecchino"): un click e la mappa diventa leggibile.
+   */
+  function spreadOnLayers() {
+    if (!current) return
+    const usedPerKey = new Map<string, number>()
+    let maxLayer = 1
+    const keybinds = current.keybinds.map((kb) => {
+      const n = (usedPerKey.get(kb.key) ?? 0) + 1
+      usedPerKey.set(kb.key, n)
+      maxLayer = Math.max(maxLayer, n)
+      return { ...kb, layer: n }
+    })
+    const keybindMaps = maps.map((m, i) =>
+      i === activeMap ? { ...m, keybinds, layerCount: maxLayer } : m
+    )
+    commit({ ...project, keybindMaps })
+    setActiveLayer(1)
+  }
+  // Ha senso proporre la distribuzione solo se c'è davvero un tasto con più
+  // binding sullo stesso livello.
+  const hasStackedBindings = (() => {
+    const seen = new Set<string>()
+    for (const kb of current?.keybinds ?? []) {
+      const id = `${kb.key}#${layerOf(kb)}`
+      if (seen.has(id)) return true
+      seen.add(id)
+    }
+    return false
+  })()
 
   // --- Macro (modificatore + tasto base) ---
   function openAddMacro() {
@@ -710,24 +1079,45 @@ function KeybindsBoard({ project }: { project: project }) {
   }
 
   function renderKey(item: KeyDef) {
-    const list = bindingsByKey.get(item.id) ?? []
+    const all = bindingsByKey.get(item.id) ?? []
+    // Sulla tastiera si vedono solo i binding del livello selezionato: è questo
+    // che evita il tasto diviso in riquadri di più colori.
+    const inLayer = shownBindings(all)
+    // Vista ISOLATA: con un filtro attivo il tasto mostra SOLO i binding che
+    // corrispondono, a colore pieno. Prima i binding delle altre mod restavano
+    // sul tasto (solo attenuati), quindi filtrando per una mod la tastiera
+    // restava un arlecchino; così invece si guarda "il livello dedicato" a quella
+    // mod, su una tastiera per il resto vuota.
+    const list = filtersActive ? inLayer.filter((kb) => matchesFilters(kb)) : inLayer
     const bindings = list.map((kb) => ({ action: kb.action, color: colorOf(kb.category), category: kb.category }))
-    // Il tasto è "attivo" se almeno un binding matcha i filtri (o è vuoto).
-    const dimmed = list.length === 0 ? !matchesFilters(undefined) : !list.some((kb) => matchesFilters(kb))
+    // Binding del tasto che la vista NON mostra: su un altro livello, oppure
+    // esclusi dal filtro. L'angolo piegato li ricorda, altrimenti nella vista
+    // isolata un tasto già occupato da un'altra mod sembrerebbe libero.
+    const hidden = all.filter((kb) => !list.includes(kb))
+    const hiddenLabel =
+      hidden.length === 0
+        ? undefined
+        : filtersActive
+          ? t("keybinds.alsoUsedBy", {
+              mods: [...new Set(hidden.map((kb) => kb.category))].join(", "),
+            })
+          : t("keybinds.alsoOnLayers", {
+              layers: layersOf(hidden).map(layerName).join(", "),
+            })
     return (
       <KeyCap
         key={item.id}
         def={item}
         bindings={bindings}
-        dimmed={dimmed}
         onClick={() => openKey(item)}
+        hiddenLabel={hiddenLabel}
       />
     )
   }
 
   function renderRow(row: KeyboardItem[], rowIndex: number) {
     return (
-      <div key={rowIndex} className="flex items-end gap-1">
+      <div key={rowIndex} className="flex items-end" style={KEY_GAP_STYLE}>
         {row.map((item, i) =>
           isSpacer(item)
             ? <div key={`sp-${i}`} style={{ width: keyWidth(item.spacer), height: keyWidth(item.spacer) }} className="shrink-0" />
@@ -736,6 +1126,28 @@ function KeybindsBoard({ project }: { project: project }) {
       </div>
     )
   }
+
+  // Macro mostrate: come la tastiera, con un filtro attivo si vedono solo quelle
+  // che corrispondono invece di restare attenuate (sono colorate come i tasti, e
+  // attenuate sporcherebbero la vista isolata). L'indice ORIGINALE viaggia con la
+  // macro: è quello che l'editor usa per salvarla.
+  const macroList = current?.macros ?? []
+  const visibleMacros = macroList
+    .map((mc, index) => ({ mc, index }))
+    .filter(({ mc }) => !filtersActive || matchesFilters(mc))
+
+  // Binding del dialog ordinati per livello: la lista è piatta, quindi senza
+  // ordine le righe salterebbero avanti e indietro cambiando la Select.
+  const sortedDrafts = [...draftBindings].sort((a, b) => a.layer - b.layer || a.id.localeCompare(b.id))
+  // Livelli con più di un binding: ammessi, ma vanno detti (sono la ragione per
+  // cui un tasto torna a mostrarsi diviso in riquadri).
+  const sharedLayers = [
+    ...new Set(
+      draftBindings
+        .map((b) => b.layer)
+        .filter((n, i, all) => all.indexOf(n) !== i)
+    ),
+  ].sort((a, b) => a - b)
 
   // Azioni selezionabili per la macro in modifica (in base alla mod scelta) e
   // l'azione attualmente selezionata (per il Combobox controllato).
@@ -772,7 +1184,9 @@ function KeybindsBoard({ project }: { project: project }) {
             {categories.length === 0 && tags.length === 0 && (
               <p className="text-sm text-muted-foreground">{t("keybinds.addModToStart")}</p>
             )}
-            {/* Click su un chip = modifica la mod */}
+            {/* Click su un chip = modifica la mod. Qui i chip vanno a capo
+                liberamente (niente `ChipStrip`): è la lista di gestione delle mod
+                del progetto, la si vuole vedere tutta in una volta. */}
             {categories.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="w-10 text-xs text-muted-foreground">{t("keybinds.modsLabel")}</span>
@@ -797,7 +1211,7 @@ function KeybindsBoard({ project }: { project: project }) {
             {categories.length === 0 && tags.length === 0 && (
               <p className="text-sm text-muted-foreground">{t("keybinds.addTagToStart")}</p>
             )}
-            {/* Click su un chip = modifica il tag */}
+            {/* Click su un chip = modifica il tag (a capo libero come le mod). */}
             {tags.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="w-10 text-xs text-muted-foreground">{t("keybinds.tagsLabel")}</span>
@@ -882,25 +1296,33 @@ function KeybindsBoard({ project }: { project: project }) {
                       className="h-8 pl-8"
                     />
                   </div>
-                  {tags.length > 0 && (
+                  {/* Solo i tag portati dalle mod presenti in questa mappa. */}
+                  {filterTags.length > 0 && (
                     <Select value={tagFilter} onValueChange={setTagFilter}>
                       <SelectTrigger className="h-8 w-44">
                         <SelectValue placeholder={t("keybinds.allTags")} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">{t("keybinds.allTags")}</SelectItem>
-                        {tags.map((t) => (
-                          <SelectItem key={t.name} value={t.name}>{t.name}</SelectItem>
+                        {filterTags.map((tg) => (
+                          <SelectItem key={tg.name} value={tg.name}>{tg.name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   )}
                 </div>
-                {categories.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="w-10 text-xs text-muted-foreground">{t("keybinds.modsLabel")}</span>
-                    <FilterChip label={t("keybinds.all")} active={modFilter === "all"} onClick={() => setModFilter("all")} />
-                    {categories.map((c) => (
+                {filterCategories.length > 0 && (
+                  <ChipStrip
+                    label={t("keybinds.modsLabel")}
+                    leading={
+                      // "Tutte" azzera il filtro: fuori dallo scroll, così si
+                      // torna alla vista completa senza cercare il chip.
+                      <div className="pt-1">
+                        <FilterChip label={t("keybinds.all")} active={modFilter === "all"} onClick={() => setModFilter("all")} />
+                      </div>
+                    }
+                  >
+                    {filterCategories.map((c) => (
                       <FilterChip
                         key={c.name}
                         label={c.name}
@@ -909,25 +1331,118 @@ function KeybindsBoard({ project }: { project: project }) {
                         onClick={() => setModFilter(modFilter === c.name ? "all" : c.name)}
                       />
                     ))}
-                  </div>
+                  </ChipStrip>
                 )}
               </div>
 
-              {/* Tastiera + Numpad + Mouse */}
-              <div className="overflow-x-auto">
-                <div className="flex w-fit items-start gap-6">
+              {/* Tastiera + Numpad + Mouse, con la lista dei livelli a sinistra */}
+              <div className="flex items-start gap-4">
+                {/* Livelli della mappa: si guarda un livello per volta, così su
+                    ogni tasto compare un solo binding a colore pieno. */}
+                <div className="w-40 shrink-0 space-y-2">
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <LayersIcon className="size-4" /> {t("keybinds.layers")}
+                  </p>
+                  <div className="space-y-1 rounded-xl border bg-muted/30 p-2">
+                    {Array.from({ length: layerCount }, (_, i) => i + 1).map((n) => {
+                      const active = effectiveLayer === n
+                      const count = perLayerCount(n)
+                      return (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => setActiveLayer(n)}
+                          className={cn(
+                            "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
+                            active
+                              ? "bg-primary text-primary-foreground font-medium"
+                              : "hover:bg-muted text-muted-foreground"
+                          )}
+                        >
+                          <span>{layerName(n)}</span>
+                          <span className={cn("text-xs", active ? "opacity-80" : "opacity-60")}>
+                            {count}
+                          </span>
+                        </button>
+                      )
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => setActiveLayer(ALL_LAYERS)}
+                      className={cn(
+                        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
+                        effectiveLayer === ALL_LAYERS
+                          ? "bg-foreground text-background font-medium"
+                          : "hover:bg-muted text-muted-foreground"
+                      )}
+                    >
+                      <span>{t("keybinds.allLayers")}</span>
+                      <span className="text-xs opacity-60">{current.keybinds.length}</span>
+                    </button>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={addLayer}
+                      title={t("keybinds.addLayerTitle")}
+                    >
+                      <PlusIcon /> {t("keybinds.addLayer")}
+                    </Button>
+                    {layerCount > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={removeLastLayer}
+                        disabled={perLayerCount(layerCount) > 0}
+                        title={
+                          perLayerCount(layerCount) > 0
+                            ? t("keybinds.removeLayerBlocked")
+                            : t("keybinds.removeLayerTitle", { layer: layerName(layerCount) })
+                        }
+                      >
+                        <XIcon /> {t("keybinds.removeLayer")}
+                      </Button>
+                    )}
+                    {hasStackedBindings && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={spreadOnLayers}
+                        title={t("keybinds.spreadTitle")}
+                      >
+                        <LayersIcon /> {t("keybinds.spread")}
+                      </Button>
+                    )}
+                  </div>
+                  {filtersActive && (
+                    <p className="text-[11px] leading-snug text-muted-foreground">
+                      {t("keybinds.isolatedByFilter")}
+                    </p>
+                  )}
+                </div>
+
+                <div className="min-w-0 flex-1 overflow-x-auto">
+                {/* `flex-wrap`: alla scala attuale i tre blocchi in fila superano
+                    la larghezza utile su schermi normali, e scorrere in orizzontale
+                    per raggiungere il numpad è peggio che vederlo andare a capo.
+                    L'`overflow-x-auto` resta per la tastiera sola, che non si
+                    accorcia. */}
+                <div className="flex w-full flex-wrap items-start gap-6">
                   <div className="space-y-3">
                     <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><KeyboardIcon className="size-4" /> {t("keybinds.keyboard")}</p>
                     <div className="rounded-xl border bg-muted/30 p-4">
-                      <div className="space-y-1">{MAIN_ROWS.map(renderRow)}</div>
+                      {/* Gap verticale dal GAP_REM come quello orizzontale: è la
+                          stessa griglia su cui `keyWidth` calcola i tasti larghi. */}
+                      <div className="flex flex-col" style={KEY_GAP_STYLE}>{MAIN_ROWS.map(renderRow)}</div>
                     </div>
                   </div>
                   <div className="space-y-3">
                     <p className="text-xs text-muted-foreground">{t("keybinds.numpad")}</p>
                     <div className="rounded-xl border bg-muted/30 p-4">
-                      <div className="flex items-start gap-1">
-                        <div className="space-y-1">{NUMPAD_ROWS.map(renderRow)}</div>
-                        <div className="flex flex-col gap-1">{NUMPAD_SIDE.map(renderKey)}</div>
+                      <div className="flex items-start" style={KEY_GAP_STYLE}>
+                        <div className="flex flex-col" style={KEY_GAP_STYLE}>{NUMPAD_ROWS.map(renderRow)}</div>
+                        <div className="flex flex-col" style={KEY_GAP_STYLE}>{NUMPAD_SIDE.map(renderKey)}</div>
                       </div>
                     </div>
                   </div>
@@ -935,6 +1450,7 @@ function KeybindsBoard({ project }: { project: project }) {
                     <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><MouseIcon className="size-4" /> {t("keybinds.mouse")}</p>
                     <div className="rounded-xl border bg-muted/30 p-4">{renderRow(MOUSE_KEYS, 0)}</div>
                   </div>
+                </div>
                 </div>
               </div>
 
@@ -947,26 +1463,26 @@ function KeybindsBoard({ project }: { project: project }) {
                   </Button>
                 </div>
                 <div className="rounded-xl border bg-muted/30 p-4">
-                  {(current.macros ?? []).length === 0 ? (
+                  {macroList.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                       {t("keybinds.noMacros")}
                     </p>
+                  ) : visibleMacros.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      {t("keybinds.noMacrosForFilter")}
+                    </p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
-                      {(current.macros ?? []).map((mc, i) => {
+                      {visibleMacros.map(({ mc, index }) => {
                         const color = colorOf(mc.category)
-                        const dimmed = !matchesFilters(mc)
                         return (
                           <button
-                            key={i}
+                            key={index}
                             type="button"
-                            onClick={() => openEditMacro(i)}
+                            onClick={() => openEditMacro(index)}
                             title={`${mc.action} — ${mc.category}`}
                             style={{ background: color, color: contrastText(color) }}
-                            className={cn(
-                              "flex items-center gap-2 rounded-md border border-transparent px-3 py-1.5 text-left transition-transform hover:z-10 hover:scale-105",
-                              dimmed && "opacity-20"
-                            )}
+                            className="flex items-center gap-2 rounded-md border border-transparent px-3 py-1.5 text-left transition-transform hover:z-10 hover:scale-105"
                           >
                             <span className="rounded bg-black/25 px-1.5 py-0.5 font-mono text-[11px] font-semibold whitespace-nowrap">
                               {t("keybinds.modifier." + mc.modifier)} + {keyLabel(mc.key)}
@@ -1037,7 +1553,7 @@ function KeybindsBoard({ project }: { project: project }) {
       {/* Dialog binding — non-modal + niente chiusura su interazione esterna,
           così il popup (portalato) del Combobox azioni resta cliccabile. */}
       <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)} modal={false}>
-        <DialogContent className="max-w-xl!"
+        <DialogContent className="max-w-2xl!"
           onInteractOutside={(e) => e.preventDefault()}
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
@@ -1050,80 +1566,107 @@ function KeybindsBoard({ project }: { project: project }) {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label>{t("keybinds.bindings")}</Label>
-                <span className="text-xs text-muted-foreground">{draftBindings.length}/{MAX_BINDINGS}</span>
+                <span className="text-xs text-muted-foreground">{draftBindings.length}</span>
               </div>
-              {draftBindings.map((b, i) => {
-                const color = colorOf(b.category)
-                const actions = actionsForCategory(b.category)
-                const selected = actions?.find((a) => a.value === b.actionKey) ?? null
-                return (
-                  <div key={i} className="flex items-center gap-2">
-                    <span className="size-3 shrink-0 rounded-full" style={{ background: color }} />
-                    {actions ? (
-                      <div className="min-w-0 flex-1">
-                        {/* key per category: rimonta il Combobox quando cambi mod,
-                            così non resta filtrato con il testo digitato prima. */}
-                        <Combobox
-                          key={b.category}
-                          items={actions}
-                          value={selected}
-                          onValueChange={(v: { value: string; label: string } | null) =>
-                            updateDraftBinding(i, { actionKey: v?.value, action: v?.label ?? "" })
-                          }
-                          isItemEqualToValue={(a, c) => a?.value === c?.value}
+              <p className="text-xs text-muted-foreground">{t("keybinds.layerSelectHint")}</p>
+              {/* Lista dei binding del tasto: il livello si sceglie da una Select
+                  (niente trascinamento). ScrollArea perché i binding non hanno un
+                  massimo e il dialog non deve crescere oltre lo schermo. */}
+              <ScrollArea className="h-78! pr-3">
+                <div className="space-y-2">
+                  {sortedDrafts.map((b) => {
+                    const color = colorOf(b.category)
+                    const actions = actionsForCategory(b.category)
+                    const selected = actions?.find((a) => a.value === b.actionKey) ?? null
+                    return (
+                      <div key={b.id} className="flex items-center gap-2">
+                        <span className="size-3 shrink-0 rounded-full" style={{ background: color }} />
+                        {actions ? (
+                          <div className="min-w-0 flex-1">
+                            {/* key per category: rimonta il Combobox quando cambi mod,
+                                così non resta filtrato con il testo digitato prima. */}
+                            <Combobox
+                              key={b.category}
+                              items={actions}
+                              value={selected}
+                              onValueChange={(v: { value: string; label: string } | null) =>
+                                updateDraftBinding(b.id, { actionKey: v?.value, action: v?.label ?? "" })
+                              }
+                              isItemEqualToValue={(a, c) => a?.value === c?.value}
+                            >
+                              <ComboboxInput placeholder={t("keybinds.selectAction")} />
+                              <ComboboxContent>
+                                <ComboboxEmpty>{t("keybinds.noActionsFound")}</ComboboxEmpty>
+                                <ComboboxList>
+                                  {(item: { value: string; label: string }) => (
+                                    <ComboboxItem key={item.value} value={item}>{item.label}</ComboboxItem>
+                                  )}
+                                </ComboboxList>
+                              </ComboboxContent>
+                            </Combobox>
+                          </div>
+                        ) : (
+                          <Input
+                            placeholder={t("keybinds.actionPlaceholder")}
+                            value={b.action}
+                            onChange={(e) => updateDraftBinding(b.id, { action: e.target.value, actionKey: undefined })}
+                            className="flex-1"
+                          />
+                        )}
+                        <Select
+                          value={b.category}
+                          onValueChange={(v) => updateDraftBinding(b.id, { category: v, action: "", actionKey: undefined })}
                         >
-                          <ComboboxInput placeholder={t("keybinds.selectAction")} />
-                          <ComboboxContent>
-                            <ComboboxEmpty>{t("keybinds.noActionsFound")}</ComboboxEmpty>
-                            <ComboboxList>
-                              {(item: { value: string; label: string }) => (
-                                <ComboboxItem key={item.value} value={item}>{item.label}</ComboboxItem>
-                              )}
-                            </ComboboxList>
-                          </ComboboxContent>
-                        </Combobox>
+                          <SelectTrigger className="h-8 w-32 shrink-0">
+                            <SelectValue placeholder={t("keybinds.modPlaceholder")} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {categories.map((c) => (
+                              <SelectItem key={c.name} value={c.name}>{c.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {/* Livello del binding: l'ultima voce ne crea uno nuovo, così
+                            non serve un bottone separato per aggiungerlo. */}
+                        <Select
+                          value={String(b.layer)}
+                          onValueChange={(v) => setDraftLayer(b.id, v)}
+                        >
+                          <SelectTrigger className="h-8 w-32 shrink-0">
+                            <SelectValue placeholder={t("keybinds.layer")} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: draftLayers }, (_, i) => i + 1).map((n) => (
+                              <SelectItem key={n} value={String(n)}>{layerName(n)}</SelectItem>
+                            ))}
+                            <SelectItem value={NEW_LAYER_VALUE}>{t("keybinds.newLayer")}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0"
+                          onClick={() => removeDraftBinding(b.id)}
+                          aria-label={t("keybinds.removeBinding")}
+                        >
+                          <XIcon />
+                        </Button>
                       </div>
-                    ) : (
-                      <Input
-                        placeholder={t("keybinds.actionPlaceholder")}
-                        value={b.action}
-                        onChange={(e) => updateDraftBinding(i, { action: e.target.value, actionKey: undefined })}
-                        autoFocus={i === 0}
-                        className="flex-1"
-                      />
-                    )}
-                    <Select
-                      value={b.category}
-                      onValueChange={(v) => updateDraftBinding(i, { category: v, action: "", actionKey: undefined })}
-                    >
-                      <SelectTrigger className="h-8 w-36 shrink-0">
-                        <SelectValue placeholder={t("keybinds.modPlaceholder")} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {categories.map((c) => (
-                          <SelectItem key={c.name} value={c.name}>{c.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="shrink-0"
-                      onClick={() => removeDraftBinding(i)}
-                      aria-label={t("keybinds.removeBinding")}
-                    >
-                      <XIcon />
-                    </Button>
-                  </div>
-                )
-              })}
+                    )
+                  })}
+                </div>
+              </ScrollArea>
+              {sharedLayers.length > 0 && (
+                <p className="text-xs text-amber-500">
+                  {t("keybinds.sameLayerWarning", { layers: sharedLayers.map(layerName).join(", ") })}
+                </p>
+              )}
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={addDraftBinding}
-                disabled={draftBindings.length >= MAX_BINDINGS}
+                onClick={() => addDraftBinding()}
               >
                 <PlusIcon /> {t("keybinds.addBinding")}
               </Button>
@@ -1138,11 +1681,11 @@ function KeybindsBoard({ project }: { project: project }) {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={saveBindingToAll}
+                  onClick={() => void confirmSaveToAllMaps()}
                   disabled={categories.length === 0 || draftBindings.some((b) => b.action.trim() && !b.category)}
                   title={t("keybinds.allProfilesTitle")}
                 >
-                  <LayersIcon /> {t("keybinds.allProfiles")}
+                  <CopyIcon /> {t("keybinds.allProfiles")}
                 </Button>
               )}
               <Button

@@ -32,7 +32,8 @@ function parseModifier(tokens: string[] | undefined): macroModifier | null {
 //                 modId installati, infine il primo segmento non generico.
 
 // Massimo binding per tasto (coerente con la UI della pagina keybinds).
-const MAX_BINDINGS = 4
+// Un tasto ospita un'azione per livello e i livelli non hanno un tetto: nessun
+// binding viene più scartato per "troppe azioni sullo stesso tasto".
 const REL_PATH = ["config", "keybindprofiles.json"]
 const VANILLA_CATEGORY = "Vanilla"
 
@@ -120,7 +121,10 @@ function parseKeyset(content: string, ctx: ImportContext): ImportResult {
     const bindings =
       prof?.bindings && typeof prof.bindings === "object" ? prof.bindings : {}
 
+    // Quanti livelli sono già occupati su ciascun tasto: il prossimo binding
+    // dello stesso tasto finisce sul livello successivo.
     const perKey = new Map<string, number>()
+    let maxLayer = 1
     const keybinds: keybind[] = []
     const macros: macro[] = []
     for (const [actionKey, stroke] of Object.entries(bindings)) {
@@ -147,16 +151,14 @@ function parseKeyset(content: string, ctx: ImportContext): ImportResult {
         continue
       }
       const count = perKey.get(keyId) ?? 0
-      if (count >= MAX_BINDINGS) {
-        issues.push({ map: name, actionKey, keyCode: code, reason: "overflow" })
-        continue
-      }
       usedCategories.add(category)
-      keybinds.push({ key: keyId, action: label, actionKey, category })
+      const layer = count + 1
+      maxLayer = Math.max(maxLayer, layer)
+      keybinds.push({ key: keyId, action: label, actionKey, category, layer })
       perKey.set(keyId, count + 1)
       bindingCount++
     }
-    maps.push({ name, keybinds, macros })
+    maps.push({ name, keybinds, macros, layerCount: maxLayer })
   }
 
   // Categorie (mod) da aggiungere al project, con un colore dalla palette.

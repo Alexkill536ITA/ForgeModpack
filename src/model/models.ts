@@ -97,6 +97,12 @@ export type keybind = {
     actionKey?: string, // chiave di traduzione Minecraft (es. "key.jei.toggleOverlay"),
                         // usata per scrivere i file di config; opzionale = retrocompatibile
     category: string,   // nome della categoria (riferimento a keybindCategory.name)
+    // Livello (>= 1, senza massimo) su cui vive il binding DENTRO la sua mappa: serve a
+    // distribuire più azioni sullo stesso tasto su "lucidi" sovrapposti, così la
+    // tastiera mostra un solo binding per tasto invece di dividere il tasto in
+    // riquadri di colori diversi. Assente = 1 (retrocompatibile: i progetti
+    // salvati prima dei layer hanno tutto sul primo livello).
+    layer?: number,
 };
 
 // Categoria primaria di un keybind: corrisponde a una mod (name = nome mod).
@@ -131,7 +137,11 @@ export type macro = {
 export type keybindMap = {
     name: string,
     keybinds: keybind[],
-    macros?: macro[] // combinazioni modificatore + tasto; opzionale = retrocompatibile
+    macros?: macro[], // combinazioni modificatore + tasto; opzionale = retrocompatibile
+    // Quanti livelli ha la mappa (>= 1, senza massimo). È esplicito e non derivato dal
+    // massimo `layer` usato, altrimenti un livello appena creato e ancora vuoto
+    // scomparirebbe. Assente = 1.
+    layerCount?: number
 };
 
 export const toastStyles = {

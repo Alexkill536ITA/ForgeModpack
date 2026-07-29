@@ -41,7 +41,15 @@ Editor for metadata, modloader/versions and assets.
 - **Bootstrap** (once, anti-StrictMode ref): `getMinecraftManifestCached()` +
   `getModLoaderManifestCached()` in parallel → dispatch.
 - **`handleUpdateField(path, value)`**: `setByPath` on the project; clears `modloader.version` when
-  `mcversion`/`type` changes; leaving DATAPACK clears `hybrid`/`hybridLoader`.
+  `mcversion`/`type` changes; leaving DATAPACK clears `hybrid`/`hybridLoader`; dropping below MC 1.13
+  while `type = DATAPACK` sets the loader back to FORGE and clears hybrid mode (with a toast), because
+  data packs don't exist before 1.13.
+- **Loaders unavailable per version**: `isBelowMcMinor(mc, minMinor)` (pure helper) feeds
+  `neoforgeDisabled` (`NEOFORGE_MIN_MINOR = 20`) and `datapackDisabled` (`DATAPACK_MIN_MINOR = 13`) →
+  `disabled` on the respective `ToggleGroupItem`. The helper reasons **only** about the "1.x" scheme
+  (where minor is the game generation); with `major != "1"` (newer schemes such as "26.1") the feature
+  always exists, and with no version picked the toggle stays disabled. A line below the toggles explains
+  which version data packs start from (a disabled toggle with no reason looks like a bug).
 - **Filtered versions** (useMemo): `minecraftVersions` (only `release`), `forgeVersions`,
   `neoforgeVersions` (min minor 20), `fabricVersions`, `quiltVersions` → `modloaderVersions` chosen
   based on `effectiveLoader` (the type itself, or `hybridLoader` in datapack+hybrid mode).
@@ -69,8 +77,30 @@ Scans `mods/` (and `datapacks/`), lists them with an active toggle, fuzzy search
 - **`missingDependencies`**: `mandatory` dependencies not in `RUNTIME_DEPS` nor in `installedIds`
   (union of the `provides` — or `modId` fallback — of the **active** mods).
 - **`fuzzyMatch`/`modScore`**: subsequence search with scoring; sorts `visibleMods`.
-- **UI**: `SummaryCard` (total/active/inactive), mod table (On/Mod/Version/Loader/Authors/
-  Dependencies with a green/red dot + tooltip for missing ones) and datapack table.
+- **`visibleMods`** (useMemo): three-step pipeline **chips → search → sorting**.
+  `installedIds`/`missing`/`withWarnings` are memoized: recreating them on every render would make
+  memoizing the pipeline pointless.
+- **Default sorting**: `effectiveSort = sort ?? (query ? null : DEFAULT_SORT)` with
+  `DEFAULT_SORT = {key: "name", dir: "asc"}`. The table therefore starts **alphabetical by name** (the
+  scan order is alphabetical by *filename*, which doesn't match the displayed name); while searching,
+  with no explicit choice, **fuzzy relevance** wins (sorting search results by name would bury the best
+  match). A clicked sort always **beats** relevance. `effectiveSort` is what feeds both the pipeline
+  and the header arrows.
+- **Sorting**: `sortState = {key, dir} | null`, cycling `asc → desc → null` on header click
+  (`SortableHead`, with `aria-sort`; the cycle starts from `effectiveSort`, not from internal state, so
+  the first click on "Mod" **reverses** the already visible order instead of reapplying it — and the
+  third click goes back to the default). `sortValue` maps the column to the value to compare (`active` →
+  0/1, `deps` → number of missing ones, `format` → the **displayed** label); `compareMods` uses an
+  `Intl.Collator({numeric: true})` — **natural** comparison, so "1.10.0" comes after "1.9.0" — with the
+  name as a stable tie-break. Semver is not used: mod versions often aren't
+  (`1.20.1-forge-47.2.0`). A **copy** is sorted (the array comes from Redux).
+- **Chip filters** (multiple `ToggleGroup`): `matchesFilters` with OR **within** a group and AND
+  **across** groups — status group (`active`/`inactive`) and issues group (`missing`/`warnings`). The
+  chip counts match the `SummaryCard` ones; since `missing` only considers active mods,
+  "inactive + missing" is empty by construction.
+- **UI**: `SummaryCard` (total/active/inactive/missing/warnings), search bar + chips + "Clear filters",
+  mod table with sortable headers (On/Mod/Version/Loader/Format/Authors/Dependencies with a green/red
+  dot + tooltip for missing ones) and datapack table (no sort/chips: search only).
 
 ```mermaid
 flowchart LR

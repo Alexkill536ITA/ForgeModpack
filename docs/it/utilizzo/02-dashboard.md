@@ -38,6 +38,18 @@ graph TD
 > Cambiando versione MC o tipo di loader, la versione del loader viene azzerata: dovrai riselezionarla
 > (è una sicurezza, perché non tutte le versioni sono compatibili tra loro).
 
+Alcuni loader non esistono su tutte le versioni di Minecraft e restano **non selezionabili** finché non
+scegli una versione compatibile:
+
+| Loader | Disponibile da |
+| --- | --- |
+| **NeoForge** | Minecraft 1.20.1 |
+| **Datapack** | Minecraft 1.13 (prima i datapack non esistono) |
+
+Se il progetto è su **Datapack** e scendi a una versione precedente alla 1.13, il loader torna
+automaticamente a **Forge** (con un avviso) e l'eventuale modalità ibrida viene disattivata: quella
+combinazione non esisterebbe nel gioco.
+
 ### Modpack a soli Datapack e modalità ibrida
 
 Se scegli **Datapack** come loader, il pack dipende solo dalla versione di Minecraft (nessuna versione

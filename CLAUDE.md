@@ -62,6 +62,13 @@ costringendo a generare una versione nuova prima di ogni build.
 - **shadcn/ui** ([`src/components/ui`](src/components/ui)) + **Tailwind v4** (config in
   [`globals.css`](src/app/globals.css), tema `dark` forzato nel layout). Non modificare a
   mano i componenti `ui/`: rigenerali con `pnpm dlx shadcn@latest add <comp>`.
+- **Scroll = sempre `ScrollArea`**: ogni area scrollabile usa
+  [`scroll-area.tsx`](src/components/ui/scroll-area.tsx), **mai** `overflow-x/y-auto` a mano. Motivo:
+  una sola barra di scorrimento in tutta l'app (stile coerente, non quella del sistema che su Windows
+  è larga e chiara) e comportamento uniforme. Per lo scorrimento **orizzontale** va passata la barra
+  esplicita — `<ScrollBar orientation="horizontal" />` come figlio, perché il default del componente è
+  verticale — e va lasciato spazio in fondo al contenuto (`pb-2.5`) perché la barra non lo copra.
+  Esempio: `ChipStrip` in [`keybinds/page.tsx`](src/app/keybinds/page.tsx).
 - **TypeScript strict**. Alias import `@/*` -> root.
 - **Lingua**: commenti e documentazione in **italiano** (vedi [`json-data.ts`](src/lib/json-data.ts)).
   L'interfaccia è **internazionalizzata** (i18n): le stringhe UI NON vanno hardcoded ma passano da
@@ -168,6 +175,16 @@ costringendo a generare una versione nuova prima di ogni build.
   parsabile si passa a una lettura permissiva riga per riga (`lenient_toml_value`) invece di
   restituire una mod vuota. Legacy: `requiredMods` (obbligatorie) + `dependencies` (solo ordine,
   prefissi FML `required-after:`/`after:`/`before:` via `parse_legacy_dep`).
+  **Compatibilità versione MC**: [`mc_compat.rs`](src-tauri/src/mc_compat.rs) (puro, testato)
+  confronta la versione MC del progetto col vincolo dichiarato dalla mod, che sta in **tre dialetti**:
+  range **Maven** nella dipendenza verso `minecraft` (Forge/NeoForge: `[1.20.1,1.21)`, `(,1.19]`,
+  `[1.12.2]`, gruppi in OR), espressione **semver-like** (Fabric/Quilt: `>=1.20.1 <1.21`, `~`, `^`,
+  `1.20.x`, `*`, `||`) e campo **`mcversion`** (legacy `mcmod.info`). `compare_versions` confronta per
+  componenti (numerici come numeri, coda testuale = pre-release più bassa). `ScannedMod` porta
+  `mcVersion` (il vincolo) e `mcCompatible: Option<bool>`; **`None` = non lo so** (vincolo assente,
+  sintassi non riconosciuta, o progetto senza versione MC) e non genera avvisi: un falso
+  "incompatibile" farebbe cercare un problema che non esiste. Se `Some(false)` viene aggiunto anche un
+  warning. Una versione secca copre la sua generazione (`1.20` vale per `1.20.1`), il contrario no.
   **Diagnostica**: `format` (es. `forge:mcmod.info`, `unknown:manifest`) e `warnings` in inglese
   (formato non allineato alla versione MC, TOML rotto, nessun lang, placeholder di versione
   irrisolto…) — mostrati in List Mods, **non** persistiti in `project.json`.
@@ -183,7 +200,14 @@ costringendo a generare una versione nuova prima di ogni build.
   appiattita dal text component, `packFormat`). Cache SQLite `datapacks:<dir>` in
   [`datapacks-scan.ts`](src/lib/datapacks-scan.ts). Usata da List Mods quando il loader è **datapack**.
 - **Loader `datapack` + ibrido**: la home ha un quinto loader **Datapack** (senza versione di loader,
-  dipende solo dalla versione MC). Selezionandolo compare la spunta **Hybrid** (`modloader.hybrid`) che
+  dipende solo dalla versione MC). **Disponibile solo da MC 1.13** (i datapack non esistono prima):
+  come per NeoForge (≥1.20.1) il toggle è disabilitato sotto quella minor via `isBelowMcMinor(mc, min)`
+  in [`page.tsx`](src/app/page.tsx) — che ragiona solo sullo schema "1.x", perché nei nuovi schemi di
+  versioning (major ≠ "1") la feature esiste sempre — con una riga di spiegazione sotto i toggle.
+  Scegliendo una versione MC < 1.13 mentre il progetto è su Datapack, `handleUpdateField` riporta il
+  loader a Forge e azzera l'ibrido (con toast): la combinazione sarebbe impossibile. I progetti
+  **già salvati** in quello stato non vengono corretti all'apertura (un `updateProject` in apertura
+  farebbe comparire la SaveBar a vuoto). Selezionandolo compare la spunta **Hybrid** (`modloader.hybrid`) che
   abilita anche un loader classico (`modloader.hybridLoader` + versione) → modpack con mods **e**
   datapack. La cartella datapack è configurabile (`configs.datapacksPath`, path assoluto; default
   `<workpath>/datapacks`). **List Mods** ([`listmods/page.tsx`](src/app/listmods/page.tsx)) mostra:
@@ -267,7 +291,20 @@ costringendo a generare una versione nuova prima di ogni build.
   CRLF/LF). `keyset.ts` è l'exporter **attivo** per la mod BeeBoyD/Keyset (`config/keybindprofiles.json`,
   multi-profilo: ogni mappa = un profilo, merge conservativo); il formato è verificato contro il codec
   del mod (`schema` accettato solo `0` o `1=CONFIG_SCHEMA`, `key` omesso se unbound, slug id con `-`).
-  `html-view.ts`/`image-png.ts` esportano la tastiera come HTML interattivo/PNG (`keyboard-visual.ts`).
+  `html-view.ts`/`image-png.ts` esportano la tastiera come HTML interattivo/immagini (`keyboard-visual.ts`,
+  **allineato alla pagina Keybinds**: `UNIT=54`/`GAP=5` come `KEY_SCALE=1.35`, testo non scalato ma
+  azione su due righe (`wrapTwoLines`), `opts.layer` per il livello mostrato + angolo piegato, e
+  nell'HTML un SVG **per livello** con selettore, filtri che **isolano** invece di attenuare — stati
+  `.on`/`.off`/`.solo` pre-renderizzati e scambiati dal CSS, nessun disegno lato JS).
+  **`image-png` produce un ZIP**, non un PNG singolo: `<nome mappa>/complete.png` (tutti i livelli) +
+  `layer-N.png` (uno per livello, con caption in alto); con un livello solo resta la sola `complete.png`.
+  Il campo `output: "text" | "image" | "image-zip"` del `KeybindExporter` (era il flag `image`) dice
+  alla UI come scrivere: rasterizzazione (`svgToPngBytes`, il canvas esiste solo nel webview) e
+  impacchettamento restano in [`export-dialog.tsx`](src/components/keybinds/export-dialog.tsx), gli
+  exporter restano puri. Lo ZIP è scritto a mano in [`zip-writer.ts`](src/lib/zip-writer.ts)
+  (`buildZip`): solo metodo **STORE** — i PNG sono già compressi, quindi deflate non vale una
+  dipendenza npm né il passaggio dei byte a Rust — deterministico (timestamp fisso), nomi in UTF-8
+  (necessario per le mappe con accenti), niente ZIP64.
   La traduzione id-tasto → input code Minecraft è in [`mc-keycodes.ts`](src/lib/mc-keycodes.ts)
   (`toMinecraftInput`, fallback `key.keyboard.unknown` per i tasti IT accentati). Ogni exporter dichiara
   `maps: "all-in-one" | "single" | "per-map"`; UI in
@@ -308,8 +345,10 @@ costringendo a generare una versione nuova prima di ogni build.
   metadata, scelta modloader + versioni filtrate dai manifest; **cache SQLite** dei manifest
   con TTL e refresh manuale.
   - **List Mods** ([`src/app/listmods/page.tsx`](src/app/listmods/page.tsx)) — card di
-    riepilogo (totale/attive/inattive/dipendenze mancanti/**con avvisi**) + tabella con nome,
-    versione, loader (badge), colonna **Format** (badge del file di metadati rilevato + icona con
+    riepilogo (totale/attive/inattive/dipendenze mancanti/**incompatibili**/**con avvisi**) + tabella
+    con nome, versione, loader (badge), colonna **MC** (vincolo di versione dichiarato dalla mod +
+    pallino verde/rosso/grigio secondo `mcCompatible`, grigio = non verificabile),
+    colonna **Format** (badge del file di metadati rilevato + icona con
     tooltip dei `warnings` di scansione, presi dalla stessa scansione), autori,
     checkbox `active` e colonna **Dependencies** (pallino verde se OK, rosso + lista dei modId
     mancanti via tooltip). `missingDependencies` confronta i `modId` delle dipendenze
@@ -321,27 +360,101 @@ costringendo a generare una versione nuova prima di ogni build.
     rimosse/aggiunte/aggiornate fuori dall'app si riflettono subito. Dentro la stessa apertura si usa
     la cache, così navigare tra le pagine non riapre i jar. Le modifiche marcano `unsaved` (Redux): la `<SaveBar />` globale appare in
     qualsiasi pagina per salvare su file.
+    **Ordinamento + filtri della tabella mod**: `visibleMods` è una pipeline memoizzata
+    **chip → ricerca fuzzy → sort**. Gli header sono cliccabili (`SortableHead`, ciclo
+    `asc → desc → null`, `aria-sort`); `sortValue` mappa la colonna sul valore da confrontare
+    (`active` → 0/1, `deps` → n. di dipendenze mancanti, `format` → etichetta mostrata) e
+    `compareMods` usa `Intl.Collator({numeric: true})` — confronto **naturale**, "1.10.0" dopo
+    "1.9.0" — col nome come tie-break; **non** semver (le versioni delle mod spesso non lo sono).
+    L'ordine di partenza è `DEFAULT_SORT = {name, asc}` via
+    `effectiveSort = sort ?? (query ? null : DEFAULT_SORT)`: la tabella è **alfabetica per nome**
+    (l'ordine di scansione è alfabetico per *filename*, che è diverso), tranne **mentre si cerca**,
+    dove senza click vince la rilevanza fuzzy; un sort esplicito batte sempre la rilevanza. Il ciclo
+    dell'header parte da `effectiveSort`, così il primo click su "Mod" inverte l'ordine visibile
+    invece di riapplicarlo. I chip
+    (`ToggleGroup` multiplo: active/inactive/missing/incompatible/warnings, coi conteggi delle
+    SummaryCard) usano `matchesFilters`: OR **dentro** il gruppo (stato | problemi), AND **tra**
+    gruppi; siccome `missing` guarda solo le mod attive, "inactive + missing" è vuoto per costruzione
+    (mentre `incompatible` conta anche le mod spente: dipende dal jar, non dal checkbox). Si ordina
+    sempre una **copia** dell'array (viene da Redux). La tabella datapack resta con la sola ricerca.
 - **Da fare (focus attuale)**:
   - **Keybinds** ([`src/app/keybinds/page.tsx`](src/app/keybinds/page.tsx)) — rappresentazione
     grafica di tastiera (ISO/IT) + numpad + mouse, con layout data-driven in
     [`keyboard-layout.ts`](src/lib/keyboard-layout.ts) (unità rem; gli `id` dei tasti sono stabili:
-    sono la chiave dei keybind). Una **nuova mappa nasce dal template**
+    sono la chiave dei keybind). La **scala** ha un unico punto di verità in `page.tsx`: `KEY_SCALE`
+    (1.35 → tasto 1u = 3.375rem/54px) da cui derivano `UNIT_REM`, `GAP_REM`, `KEY_GAP_STYLE` (i gap del
+    markup, prima `gap-1` per coincidenza) e `scaledPx()` per l'angolo piegato — scalarne solo una parte
+    sfalserebbe `keyWidth()`, che somma unità **e** gap, e i tasti larghi non starebbero più sulla
+    griglia. I **corpi del testo NON scalano** (restano 9/7.5/10px): il tasto grande serve a dare
+    spazio all'azione, non a scriverla più grande. A questa scala i tre blocchi (tastiera/numpad/mouse)
+    vanno a capo (`flex-wrap`), con `overflow-x-auto` a coprire la sola tastiera. Una **nuova mappa nasce dal template**
     [`keybind-template.ts`](src/lib/keybind-template.ts) — file separato dal layout: `defaultKeybinds()`
     (i keybind VANILLA di Minecraft coi tasti di default, tutti con `actionKey` valido → esportabili)
     + `defaultCategories()` (una sola categoria non-mod, **"Vanilla"**), fuse nelle categorie del
     progetto senza duplicati. **Multi-mappa**: il progetto ha `keybindMaps: keybindMap[]` (es.
     "Tech & Armi", "Magia"); selettore di mappe in cima con add/remove, ognuna col proprio set
-    di binding. Click su un tasto → dialog action + categoria; filtri dinamici che "dimmano" i
-    tasti non in categoria. **Due assi di classificazione**: *Mod* (categoria primaria,
+    di binding. Click su un tasto → dialog action + categoria; filtri dinamici che **isolano** la
+    selezione (vedi "Vista isolata"). **Due assi di classificazione**: *Mod* (categoria primaria,
     `keybindCategory {name=nome mod, color, tags[]}`) e *Tag* (`keybindTag {name, color}`,
     secondo filtro associato alle mod). Due tasti header **Add Mod** (Combobox sulle mod →
     name = nome mod, colore, tag associati) e **Add Tag** (nome + colore). Due barre di filtro
-    (Mods + Tags) che combinano il dimming. Il binding ha solo `category` (la mod); i tag
+    (Mods + Tags) che si combinano. Il binding ha solo `category` (la mod); i tag
     vengono dalla mod. Persiste in `project.keybindCategories` / `project.keybindTags` /
     `project.keybindMaps` via `updateProject` (→ `unsaved` → SaveBar).
-    - **Multi-binding per tasto**: un tasto può avere fino a **4** binding; il `KeyCap` divide
-      lo sfondo in riquadri (1 pieno, 2 sopra/sotto, 3 = due in alto + fascia in basso, 4 = griglia
-      2×2), un colore per mod.
+    - **Barra dei filtri (blocco Keybinds)**: offre **solo ciò che la mappa attiva usa davvero**
+      (`usedInMap` → `filterCategories`/`filterTags`, da binding **e** macro): le categorie sono di
+      progetto, e filtrare per una mod senza tasti in quella mappa dava una tastiera vuota, col chip
+      utile sepolto tra decine. Il valore **selezionato** resta in lista anche se non più in uso
+      (cambiando mappa), altrimenti un filtro attivo diventerebbe invisibile e non si potrebbe togliere.
+      I chip stanno in un `ChipStrip`: **massimo due righe** (`grid-flow-col` + `grid-rows-2` → cresce
+      in larghezza, non in altezza) con **scroll orizzontale**, perché sta sopra la tastiera e a capo
+      libero la spingeva fuori dallo schermo; etichetta e chip "Tutte" restano fuori dall'area che
+      scorre. Le card **Mods**/**Tags** in cima NON usano il `ChipStrip` e mostrano tutto il progetto:
+      sono la lista di gestione (colore, tag), da raggiungere anche prima dell'uso in una mappa.
+    - **Vista isolata (filtri)**: con almeno un filtro attivo (`filtersActive` = mod, tag o ricerca)
+      ogni tasto mostra **solo i binding che corrispondono**, a colore pieno, e i tasti senza
+      corrispondenze restano **vuoti** come su una mappa nuova: filtrando per una mod si guarda "il
+      livello dedicato" a quella mod, non una tastiera con i colori di tutte. Prima i binding delle
+      altre mod restavano sul tasto attenuati (`opacity-20`), che è il rumore che si voleva togliere:
+      il `dimmed` non esiste più. I binding esclusi non sono persi di vista — l'**angolo piegato**
+      del `KeyCap` (prop `hiddenLabel`) copre entrambi i casi: altri livelli (`alsoOnLayers`) nella
+      vista per livello, altre mod (`alsoUsedBy`) nella vista isolata; senza quel segno un tasto già
+      occupato sembrerebbe libero. Stessa regola per le **macro** (chip colorati nella stessa vista):
+      quelle fuori filtro sono nascoste, non attenuate (`visibleMacros` preserva l'indice originale,
+      che è quello che l'editor salva).
+    I **tag di default** (`defaultTags()`) entrano nel progetto **alla creazione**, non alla prima
+    mappa: si assegnano alle mod con "Add Mod", che funziona anche senza mappe. Il progetto vuoto ha
+    un'unica fabbrica [`new-project.ts`](src/lib/new-project.ts) (`emptyProject(workpath)`), usata sia
+    dal menu della sidebar sia da `ProjectGate`: prima l'oggetto era duplicato nei due file. La fusione
+    dei tag alla creazione di una mappa resta come rete di sicurezza per i progetti più vecchi
+    (`keybindTags` vuoto), mentre le categorie nascono davvero lì ("Vanilla" ha senso con una mappa).
+    - **Layer (livelli) della mappa**: livelli **illimitati** per mappa (`keybindMap.layerCount`,
+      `keybind.layer`, assenti = 1 → retrocompatibile). Si guarda **un livello per volta** (lista a
+      sinistra della tastiera, con conteggio per livello + voce "Tutti i livelli"), così su ogni tasto
+      compare un solo binding a **colore pieno** invece del tasto diviso in riquadri di colori diversi.
+      Un tasto usato anche su altri livelli mostra un **angolo piegato** in alto a destra (+ tooltip);
+      prima erano puntini, troppo sporchi sul tasto. `effectiveLayer` ricade su 1 se il livello selezionato non esiste nella mappa
+      corrente (mappe con numero di livelli diverso). **Appiattimento automatico**: con un filtro
+      attivo si vedono tutti i livelli insieme (lì il sottoinsieme è piccolo e spezzarlo ostacola, e
+      la vista isolata mostra comunque un colore solo per tasto). L'**editor del tasto** mostra un riquadro per livello e i binding si spostano da un
+      livello all'altro da una **Select del livello** (niente drag & drop): la lista dei binding è piatta,
+      ordinata per livello (`sortedDrafts`) dentro una `ScrollArea` — i binding non hanno un massimo,
+      quindi il dialog non deve crescere oltre lo schermo. L'ultima voce della Select
+      (`NEW_LAYER_VALUE`) crea un livello in più e ci sposta il binding, persistito col salvataggio.
+      Nessuno scambio automatico: due binding sullo stesso livello sono ammessi e `sharedLayers` lo
+      segnala (là il tasto tornerebbe diviso in riquadri).
+      "Distribuisci sui livelli" ripartisce i binding che condividono un tasto (uno per livello):
+      serve ai progetti nati prima dei layer, dove tutto sta sul livello 1. Si rimuove solo l'**ultimo
+      livello se vuoto** (cancellarne uno pieno butterebbe via binding senza mostrare cosa si perde).
+      L'**import** assegna i livelli progressivamente per tasto (1°→L1, 2°→L2…) e riporta
+      `ImportedMap.layerCount`; non scarta più nulla per "troppe azioni sullo stesso tasto" (il motivo
+      `overflow` non esiste più). L'**export** è invariato (i layer sono organizzazione della vista).
+      **"Tutti i profili"** (l'unica azione che scrive su mappe che non stai guardando) chiede
+      conferma e NON usa più `LayersIcon`: con la stessa icona del bottone "+ Livello", accanto, un
+      click di troppo rendeva tutte le mappe identiche senza possibilità di annullare.
+    - **Multi-binding per tasto**: nessun limite (uno per livello, livelli illimitati); nella
+      vista appiattita **senza filtri** ("Tutti i livelli") il `KeyCap` divide lo sfondo in riquadri
+      (1 pieno, 2 sopra/sotto, 3 = due in alto + fascia in basso, 4+ = griglia 2×2), un colore per mod.
     - **Selezione azioni per mod** (fatto): il dialog del tasto non usa più testo libero ma un
       **Combobox** con le azioni reali della mod selezionata (da `scan_keybinds`), ricercabile per
       label; fallback a input libero per mod senza keybind nei lang, azioni vanilla

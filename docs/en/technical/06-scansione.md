@@ -266,6 +266,7 @@ warnings**. Typical cases:
 | Warning | Meaning |
 |---|---|
 | `Metadata format … expected …` | jar built for an MC version other than the project's |
+| `Declares Minecraft … but the project targets …` | the mod's version constraint doesn't cover the project's MC version |
 | `… is not valid TOML …` | malformed `mods.toml`: metadata read leniently |
 | `Dependencies are declared under a different mod id …` | `[[dependencies.x]]` key not aligned with `modId` |
 | `Dependencies declared with … while … is expected` | `mandatory =` / `type =` style not aligned with the MC version |
@@ -277,6 +278,36 @@ warnings**. Typical cases:
 
 These fields do **not** end up in `project.json`: List Mods reads them from the scan cache (peek on
 mount), so the project file stays lightweight.
+
+## Minecraft version compatibility
+
+The same scan checks whether a mod declares support for the project's MC version. That constraint
+comes in **three dialects**, depending on the loader, and all the logic lives in
+[`mc_compat.rs`](../../../src-tauri/src/mc_compat.rs) (a **pure** module, no I/O):
+
+| Loader | Where | Syntax | Examples |
+|---|---|---|---|
+| Forge / NeoForge | dependency on `minecraft` (`versionRange`) | **Maven** range | `[1.20.1,1.21)`, `[1.20,)`, `(,1.19]`, `[1.12.2]`, OR groups `[1.16,1.17),[1.18,1.19)` |
+| Fabric / Quilt | `depends.minecraft` / `depends[].versions` | **semver-like** expression | `>=1.20.1 <1.21`, `~1.20.1`, `^1.20.1`, `1.20.x`, `*`, OR with `\|\|` |
+| Legacy Forge | `mcversion` field in `mcmod.info` | bare version (sometimes a range) | `1.12.2` |
+
+`compare_versions` compares by **components**: numbers as numbers (`1.10 > 1.9`, which string
+comparison gets wrong), missing components count as 0 (`1.20` == `1.20.0`) and a trailing text part
+lowers the version (`1.20.1-pre1` < `1.20.1`). A **bare version covers its generation** (a declared
+`1.20` holds on `1.20.1`), but not the other way round (`1.20.1` doesn't hold on `1.20`).
+
+`ScannedMod` exposes two fields:
+
+- **`mcVersion`** — the declared constraint, shown verbatim in the **MC** column of List Mods;
+- **`mcCompatible: Option<bool>`** — the verdict. `Some(false)` also adds a warning
+  (`Declares Minecraft … but the project targets …`).
+
+> ⚠️ **`None` means "I don't know", never "incompatible"**: a missing constraint, an unrecognized
+> syntax or a project with no MC version all yield `None` and no warning. A false "incompatible mod"
+> would send the user hunting for a problem that isn't there, so when in doubt the module stays quiet.
+
+Neither field ends up in `project.json`: like `format`/`warnings` they live in the scan cache. The
+cache key moved to **`mods:v5:…`** because older entries don't have them (see "Frontend side").
 
 ## Syncing with disk
 
@@ -347,8 +378,8 @@ Scans are cached in SQLite (no TTL, invalidated only by manual refresh):
 
 | Helper | File | Cache key | Command |
 |--------|------|--------------|---------|
-| `getModsScanCached` / `peekModsScanCache` | [`mods-scan.ts`](../../../src/lib/mods-scan.ts) | `mods:v4:<mc>:<forge>:<workpath>` | `scan_mods` |
-| `getKeybindActionsCached` / `peekKeybindActionsCache` | [`keybind-cache.ts`](../../../src/lib/keybind-cache.ts) | (derives from `mods:v4`) | — |
+| `getModsScanCached` / `peekModsScanCache` | [`mods-scan.ts`](../../../src/lib/mods-scan.ts) | `mods:v5:<mc>:<forge>:<workpath>` | `scan_mods` |
+| `getKeybindActionsCached` / `peekKeybindActionsCache` | [`keybind-cache.ts`](../../../src/lib/keybind-cache.ts) | (derives from `mods:v5`) | — |
 | `resolveKeybindLabels` | [`keybind-cache.ts`](../../../src/lib/keybind-cache.ts) | (none) | `resolve_keybind_labels` |
 | `getDatapacksScanCached` / `peekDatapacksScanCache` | [`datapacks-scan.ts`](../../../src/lib/datapacks-scan.ts) | `datapacks:v1:<dir>` | `scan_datapacks` |
 
@@ -356,7 +387,8 @@ Scans are cached in SQLite (no TTL, invalidated only by manual refresh):
 `keybinds` into `project.json`), Keybinds/Import derive the per-mod actions from it (`toModKeybinds` filters
 the mods with at least one keybind). The **version hint is part of the key**: changing the Minecraft
 version changes the expected format, so the scan is redone. The `v3` prefix invalidates caches
-written before legacy format support and the `format`/`warnings` fields.
+written before legacy format support and the `format`/`warnings` fields. `v5` invalidates the ones
+written before the Minecraft version check (`mcVersion`/`mcCompatible`).
 
 ## Tests
 
@@ -364,3 +396,9 @@ written before legacy format support and the `format`/`warnings` fields.
 `scansione_end_to_end_legacy_e_moderno` test builds two real `.jar` files (one with `mcmod.info` +
 `en_US.lang`, one with `mods.toml` + `en_us.json`) in a temporary folder and checks metadata,
 dependencies, keybinds, `format`, `warnings` and `resolve_keybind_labels`.
+
+Version compatibility has its own tests: `mc_compat::tests` covers the three dialects (Maven ranges,
+Fabric expressions, bare versions), numeric comparison (`1.10 > 1.9`), pre-releases and — most
+importantly — that an unknown syntax yields `None` and **not** `Some(false)`.
+`verifica_compatibilita_versione_mc` does the same end-to-end on real jars (a compatible Forge one, a
+Forge one for another version, a Fabric one, and a jar that declares nothing).

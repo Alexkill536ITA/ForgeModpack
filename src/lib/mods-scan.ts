@@ -43,16 +43,25 @@ export interface scannedMod {
   // "neoforge:mods.toml", "fabric:fabric.mod.json", "quilt:quilt.mod.json",
   // "unknown:manifest", "unknown", "unreadable". Assente nelle cache vecchie.
   format?: string
+  // Vincolo di versione Minecraft dichiarato dalla mod, nel dialetto del suo
+  // loader (range Maven per Forge/NeoForge, espressione semver per Fabric/Quilt,
+  // `mcversion` per il legacy). Assente se la mod non lo dichiara.
+  mcVersion?: string | null
+  // Esito del confronto con la versione MC del progetto (lato Rust, vedi
+  // `mc_compat.rs`): true/false, oppure null/assente quando non è verificabile
+  // (nessun vincolo, sintassi non riconosciuta, o progetto senza versione MC).
+  mcCompatible?: boolean | null
   // Problemi riscontrati leggendo il jar (in inglese, come i warning di export).
   warnings?: string[]
 }
 
-// La versione (`v4`) invalida le cache scritte prima del riconoscimento keybind
-// dal bytecode (campo `source`, chiavi non standard, meno falsi positivi) e prima
-// del fix di decodifica dei lang non-UTF8. `v3` era il supporto ai formati legacy
-// Forge (mcmod.info / en_US.lang) e ai campi `format`/`warnings`.
+// La versione (`v5`) invalida le cache scritte prima della verifica di
+// compatibilità con la versione di Minecraft (campi `mcVersion`/`mcCompatible`):
+// senza il bump quelle voci resterebbero senza esito fino a un refresh manuale.
+// `v4` era il riconoscimento keybind dal bytecode (campo `source`) + il fix di
+// decodifica dei lang non-UTF8; `v3` il supporto ai formati legacy Forge.
 function keyFor(workpath: string, hint?: scanHint): string {
-  return `mods:v4:${hint?.mc ?? ""}:${hint?.forge ?? ""}:${workpath}`
+  return `mods:v5:${hint?.mc ?? ""}:${hint?.forge ?? ""}:${workpath}`
 }
 
 /**

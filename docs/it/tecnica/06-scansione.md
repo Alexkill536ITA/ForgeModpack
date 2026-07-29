@@ -269,6 +269,7 @@ tipici:
 | Warning | Significato |
 |---|---|
 | `Metadata format … expected …` | jar di una versione MC diversa da quella del progetto |
+| `Declares Minecraft … but the project targets …` | il vincolo di versione della mod non copre la versione MC del progetto |
 | `… is not valid TOML …` | `mods.toml` malformato: metadati letti in modo permissivo |
 | `Dependencies are declared under a different mod id …` | chiave `[[dependencies.x]]` non allineata al `modId` |
 | `Dependencies declared with … while … is expected` | stile `mandatory =` / `type =` non allineato alla versione MC |
@@ -280,6 +281,37 @@ tipici:
 
 I campi **non** finiscono in `project.json`: List Mods li legge dalla cache di scansione (peek al
 mount), così il file di progetto resta leggero.
+
+## Compatibilità con la versione di Minecraft
+
+Nella stessa scansione si verifica se la mod dichiara di funzionare con la versione MC del progetto.
+Il vincolo esiste in **tre dialetti**, secondo il loader, e la logica sta tutta in
+[`mc_compat.rs`](../../../src-tauri/src/mc_compat.rs) (modulo **puro**, nessuna I/O):
+
+| Loader | Dove | Sintassi | Esempi |
+|---|---|---|---|
+| Forge / NeoForge | dipendenza verso `minecraft` (`versionRange`) | range **Maven** | `[1.20.1,1.21)`, `[1.20,)`, `(,1.19]`, `[1.12.2]`, gruppi in OR `[1.16,1.17),[1.18,1.19)` |
+| Fabric / Quilt | `depends.minecraft` / `depends[].versions` | espressione **semver-like** | `>=1.20.1 <1.21`, `~1.20.1`, `^1.20.1`, `1.20.x`, `*`, OR con `\|\|` |
+| Forge legacy | campo `mcversion` di `mcmod.info` | versione secca (a volte range) | `1.12.2` |
+
+`compare_versions` confronta per **componenti**: i numeri come numeri (`1.10 > 1.9`, che un confronto
+alfabetico sbaglierebbe), i componenti mancanti valgono 0 (`1.20` == `1.20.0`) e una coda testuale
+abbassa la versione (`1.20.1-pre1` < `1.20.1`). Una versione **secca copre la sua generazione**
+(`1.20` dichiarato vale su `1.20.1`), ma non il contrario (`1.20.1` non vale su `1.20`).
+
+`ScannedMod` espone due campi:
+
+- **`mcVersion`** — il vincolo dichiarato, mostrato così com'è nella colonna **MC** di List Mods;
+- **`mcCompatible: Option<bool>`** — l'esito. `Some(false)` aggiunge anche un warning
+  (`Declares Minecraft … but the project targets …`).
+
+> ⚠️ **`None` significa "non lo so", mai "incompatibile"**: vincolo assente, sintassi non riconosciuta
+> o progetto senza versione MC danno `None` e nessun avviso. Un falso "mod incompatibile" farebbe
+> cercare all'utente un problema che non esiste, quindi in caso di dubbio il modulo tace.
+
+I due campi **non** finiscono in `project.json`: come `format`/`warnings` vivono nella cache di
+scansione. La chiave di cache è passata a **`mods:v5:…`** perché le entry più vecchie non le hanno
+(vedi "Lato frontend").
 
 ## Sincronizzazione con il disco
 
@@ -350,8 +382,8 @@ Le scansioni sono cachate in SQLite (nessun TTL, invalidate solo dal refresh man
 
 | Helper | File | Chiave cache | Comando |
 |--------|------|--------------|---------|
-| `getModsScanCached` / `peekModsScanCache` | [`mods-scan.ts`](../../../src/lib/mods-scan.ts) | `mods:v4:<mc>:<forge>:<workpath>` | `scan_mods` |
-| `getKeybindActionsCached` / `peekKeybindActionsCache` | [`keybind-cache.ts`](../../../src/lib/keybind-cache.ts) | (deriva da `mods:v4`) | — |
+| `getModsScanCached` / `peekModsScanCache` | [`mods-scan.ts`](../../../src/lib/mods-scan.ts) | `mods:v5:<mc>:<forge>:<workpath>` | `scan_mods` |
+| `getKeybindActionsCached` / `peekKeybindActionsCache` | [`keybind-cache.ts`](../../../src/lib/keybind-cache.ts) | (deriva da `mods:v5`) | — |
 | `resolveKeybindLabels` | [`keybind-cache.ts`](../../../src/lib/keybind-cache.ts) | (nessuna) | `resolve_keybind_labels` |
 | `getDatapacksScanCached` / `peekDatapacksScanCache` | [`datapacks-scan.ts`](../../../src/lib/datapacks-scan.ts) | `datapacks:v1:<dir>` | `scan_datapacks` |
 
@@ -367,3 +399,9 @@ cache scritte prima del supporto ai formati legacy e ai campi `format`/`warnings
 `scansione_end_to_end_legacy_e_moderno` costruisce due `.jar` reali (uno con `mcmod.info` +
 `en_US.lang`, uno con `mods.toml` + `en_us.json`) in una cartella temporanea e verifica metadati,
 dipendenze, keybind, `format`, `warnings` e `resolve_keybind_labels`.
+
+La compatibilità di versione ha i suoi test: `mc_compat::tests` copre i tre dialetti (range Maven,
+espressioni Fabric, versioni secche), il confronto numerico (`1.10 > 1.9`), le pre-release e — caso
+più importante — che una sintassi sconosciuta dia `None` e **non** `Some(false)`.
+`verifica_compatibilita_versione_mc` fa lo stesso end-to-end su jar reali (Forge compatibile, Forge di
+un'altra versione, Fabric, e un jar che non dichiara nulla).

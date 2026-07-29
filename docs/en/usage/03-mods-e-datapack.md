@@ -34,7 +34,8 @@ The same applies to the **datapacks** list.
 ## The mods table
 
 At the top you'll find the summaries: the **total** count, **active** mods, **inactive** ones,
-those with **missing dependencies** and those **with warnings** from reading the jars.
+those with **missing dependencies**, the ones **incompatible** with the Minecraft version and those
+**with warnings** from reading the jars.
 
 The table shows, for each mod:
 
@@ -44,6 +45,7 @@ The table shows, for each mod:
 | **Mod** | Mod name |
 | **Version** | Version |
 | **Loader** | Forge / NeoForge / Fabric / Quilt (colored badge) |
+| **MC** | Minecraft version declared by the mod + comparison result (see below) |
 | **Format** | Which file the data was read from (see below) |
 | **Authors** | Authors |
 | **Dependencies** | Dependency status (see below) |
@@ -57,6 +59,68 @@ the pack without deleting files. The state is saved in the project.
 
 Use the **search** bar: you can type just a few letters of the name ("fuzzy" search) and the list
 reorders itself to show the best matches first.
+
+### Filtering with chips
+
+To the right of the search box there are five **chips** showing how many mods are in each condition
+(the same numbers as the cards at the top of the page): **Active**, **Inactive**, **Missing
+dependencies**, **Incompatible** and **With warnings**. Click one to show only those mods; click it again to remove it.
+
+You can select more than one, and they combine like this:
+
+- chips in the **same group** → *or*: Missing dependencies + With warnings = mods that have at least
+  one of the two problems;
+- chips in **different groups** → *and*: Active + With warnings = only active mods that have warnings.
+
+> Missing dependencies are only counted for **active** mods (a disabled mod can't break the pack), so
+> the "Inactive + Missing dependencies" combination returns no rows.
+
+The **Clear filters** button removes the chips and the search text together; the table title shows how
+many rows you are seeing out of the total (e.g. `(12/148)`).
+
+### Sorting the table
+
+The table always starts **sorted by name** (A to Z), so you find mods where you expect them even when
+the files on disk are named differently from the mod itself.
+
+Click a column header to change the order: the **first** click sorts ascending, the **second**
+descending, the **third** goes back to the starting order. The arrow next to the column name shows the
+active order.
+
+- **On** — active first (or inactive first, reversed).
+- **Version** — "natural" order: 1.10 comes **after** 1.9 (alphabetical sorting would do the
+  opposite).
+- **MC** — compatible mods first, then the unverifiable ones, then the incompatible ones (reverse the
+  order to bring problems to the top).
+- **Dependencies** — by number of missing dependencies: reverse the order to bring the problematic
+  mods to the top.
+
+Sorting and filters combine with the search. While you **search**, the list shows the best matches
+first instead of alphabetical order (otherwise the most relevant result would end up at the bottom); if
+you click a header at that point, the order you picked takes precedence.
+
+## Minecraft version compatibility
+
+The **MC** column shows which Minecraft version the mod declares support for, read from its own
+metadata, with a dot telling you how it compares to your project's version:
+
+| Dot | Meaning |
+|---|---|
+| 🟢 green | the mod covers the project's MC version |
+| 🔴 red | the mod declares other versions: almost certainly the wrong jar |
+| ⚪ grey | the mod declares something the app couldn't interpret: check it by hand |
+| `—` | the mod declares no version at all (common in older mods) |
+
+Hover the value for the full explanation. Red mods are counted in the **Incompatible** card at the top
+of the page and can be isolated with the **Incompatible** chip; each one also gets a warning in the
+**Format** column.
+
+> Grey and `—` are **not** errors: they mean "can't be checked", and the app would rather say so than
+> report a problem that isn't there. Unlike missing dependencies, the incompatible count includes
+> disabled mods too: it depends on the jar, not on whether it's enabled.
+
+The check uses the Minecraft version picked in the Dashboard: change it and the mods are re-read, so the
+column updates.
 
 ## Format and reading warnings
 

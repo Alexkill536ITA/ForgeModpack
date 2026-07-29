@@ -61,7 +61,6 @@ function collectActionKeys(content: string): string[] {
 const REASON_TOAST_KEY: Record<ImportIssueReason, string> = {
   "not-installed": "keybindIo.reasonNotInstalled",
   unmapped: "keybindIo.reasonUnmapped",
-  overflow: "keybindIo.reasonOverflow",
 }
 
 export function ImportDialog({
@@ -183,7 +182,13 @@ export function ImportDialog({
         ...res.newCategories.filter((c) => !existingCatNames.has(c.name)),
       ]
       const byName = new Map<string, keybindMap>(project.keybindMaps.map((m) => [m.name, m]))
-      for (const m of res.maps) byName.set(m.name, { name: m.name, keybinds: m.keybinds, macros: m.macros })
+      for (const m of res.maps)
+        byName.set(m.name, {
+          name: m.name,
+          keybinds: m.keybinds,
+          macros: m.macros,
+          layerCount: m.layerCount,
+        })
       const keybindMaps = [...byName.values()]
 
       dispatch(updateProject({ ...project, keybindMaps, keybindCategories }))

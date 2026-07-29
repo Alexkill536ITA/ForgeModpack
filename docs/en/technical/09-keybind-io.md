@@ -31,11 +31,12 @@ shown in the UI; `getExporter(id)` retrieves them.
 | `defaultFileName` | E.g. `options.txt` |
 | `available` | `false` = disabled in UI (format not ready) |
 | `maps` | `ExporterMapMode`: `"all-in-one"` \| `"single"` \| `"per-map"` (see below) |
-| `image?` | If `true`, `content` is SVG markup to rasterize to PNG on the UI side |
+| `output?` | `ExporterOutput`: `"text"` (default) \| `"image"` (SVG to rasterize) \| `"image-zip"` (several SVGs → archive) |
 | `build(map, ctx)` | Exports a single map → `ExportResult` |
 | `buildAll?(maps, ctx)` | Required for `maps === "all-in-one"`: exports all maps into one file |
 
-`ExportResult`: `{ content, suggestedPath, warnings[], writtenLines }`. `ExportContext`:
+`ExportResult`: `{ content, suggestedPath, warnings[], writtenLines, images? }` (`images` only for
+`"image-zip"`: `{ name, svg }[]`, where `name` is the path INSIDE the zip). `ExportContext`:
 `{ project, workpath, readExisting(absPath) }` (`readExisting` is injected by the UI for exporters
 that perform a merge).
 
@@ -53,6 +54,10 @@ In the dialog ([`export-dialog.tsx`](../../../src/components/keybinds/export-dia
 With `per-map` + "All" the UI loops `build` over each map and writes one file per map: into the
 workpath, or into a **folder** picked with `openDialog({ directory: true })` (the destination becomes
 "Choose folder…"). Summary toast `exportSuccessMulti`.
+
+The dialog **does not close on an outside click** (`onInteractOutside` with `preventDefault`): the
+configuration takes several steps and one stray click threw it away, or interrupted an export already
+under way. The X and `Esc` still close it.
 
 ### `options-txt` (active)
 
@@ -110,36 +115,78 @@ module (no DOM) that reproduces the look of the Keybinds page keyboard (Keyboard
 blocks, colored rectangles per binding, one color per mod):
 
 - **`buildKeyboardSvg(map, categories, labels?, opts?)`** → `{ svg, width, height, boundCount }`:
-  builds the SVG (geometry in px: `UNIT=40`, `GAP=4`; `colorRectsPx` for 1/2/3/4 multi-bindings).
-  With `opts.legend = true` it draws a **legend** (color swatch → mod name) below the keyboard for the
-  mods used in the map — used by the PNG export. Each key exposes `data-key` and `data-b` (binding
-  list as JSON) for click interaction.
-- **`buildKeyboardHtml(map, categories, labels?)`** → standalone HTML document: inline SVG + native
-  tooltips (`<title>`) + a **clickable** legend (mods and tags) that dims the non-matching keys +
-  a **modal window**: clicking a key opens a panel with that key's **actions and mod**. All with
-  embedded CSS/JS (works offline, view-only).
+  builds the SVG. Geometry aligned with the Keybinds page (`KEY_SCALE = 1.35`): `UNIT=54`, `GAP=5`
+  (5.4 rounded, to keep coordinates on clean numbers); `colorRectsPx` for 1/2/3/4 multi-bindings. The
+  **text does not scale**, as in the UI, but the action goes on **two lines** (`wrapTwoLines`, the
+  equivalent of `line-clamp-2`) and the character budget is derived from the font size
+  (`maxCharsFor`), so the extra room buys more readable text, not bigger text.
+  `opts.layer` selects the **layer** (a number = only its bindings, with keys used elsewhere marked by
+  the folded corner; `"all"` = all together, the default → the PNG behaves as before).
+  `opts.legend = true` draws a **legend** (color swatch → mod name) below the keyboard for the mods
+  used in the map — used by the PNG export. `opts.interactive`/`opts.solo`/`opts.idPrefix` serve the
+  HTML (see below). Each key exposes `data-key` and `data-b` (binding list as JSON, with the layer)
+  for click interaction.
+- **`buildKeyboardHtml(map, categories, labels?)`** → standalone HTML document, aligned with the UI:
+  - **one SVG per layer** plus one with all layers together, and a selector at the top with the counts:
+    you look at one layer at a time, as in the Keybinds page. On a single-layer map (maps saved before
+    layers) the selector is omitted and the single view stays exactly as before.
+  - **mod/tag filters that isolate** instead of dimming: a key shows only the matching bindings, at full
+    color, and keys with no match go back to "free". As in the UI, with a filter on the layers flatten
+    (it switches to the "all" view) and a note says so.
+  - **no drawing engine in JS**: every key carries pre-rendered the colored state (`.on`), the free
+    state (`.off`) and one group per binding (`.solo`, full color across the key); CSS swaps the state
+    and the JS only toggles classes. The file stays a static artifact. Per-view `idPrefix` keeps
+    `clipPath` ids unique (several SVGs live in the same document).
+  - native tooltips (`<title>`) and a **modal window** on key click, with action, mod and layer.
+
+  Known limitation: filtering by **tag**, if two of the filtered mods share the same key the isolated
+  view shows the first one (the UI would show two tiles). The click modal still lists every binding on
+  the key, so no information is lost.
 
 Two exporters use the module:
 
-| Exporter | File | `image` | Output |
-|----------|------|---------|--------|
-| `html-view` | [`html-view.ts`](../../../src/lib/keybind-export/html-view.ts) | — | `<map>.html` (text) |
-| `image-png` | [`image-png.ts`](../../../src/lib/keybind-export/image-png.ts) | `true` | `<map>.png` (binary) |
+| Exporter | File | `output` | Output |
+|----------|------|----------|--------|
+| `html-view` | [`html-view.ts`](../../../src/lib/keybind-export/html-view.ts) | — (text) | `<map>.html` |
+| `image-png` | [`image-png.ts`](../../../src/lib/keybind-export/image-png.ts) | `"image-zip"` | `<map>.zip` (binary) |
 
-The **`image`** flag on `KeybindExporter` signals that `content` is not text to write but the **SVG**
-markup to rasterize. Rasterization happens on the UI side in
-[`export-dialog.tsx`](../../../src/components/keybinds/export-dialog.tsx) (`svgToPngBytes`): the SVG is
-loaded into an `Image`, drawn onto a `canvas` (2× scale for sharpness) and written as PNG bytes via
-`writeFile` (requires `fs:allow-write-file` in the capabilities). The other exporters use
-`writeTextFile`.
+**`image-png` produces an ARCHIVE**, not a single PNG:
+
+```
+<map name>/
+  complete.png     ← all layers together (shared keys as tiles)
+  layer-1.png      ← one image per layer
+  layer-2.png
+```
+
+A single PNG is no longer enough now that a map has layers: the complete image shows shared keys split
+into tiles, while it's the per-layer view that reads well — both are needed. On a single-layer map the
+archive holds only `complete.png` (`layer-1.png` would be identical). Each image carries a **caption** at
+the top (`opts.caption`, e.g. "Tech & Armi — Layer 2"): without it, the layer keyboards would only be
+distinguishable by file name.
+
+`output` on `KeybindExporter` tells the UI how to write the result. Rasterization and packing happen on
+the UI side in [`export-dialog.tsx`](../../../src/components/keybinds/export-dialog.tsx) — the exporters
+stay **pure**, and the `canvas` only exists in the webview: `svgToPngBytes` loads the SVG into an
+`Image`, draws it onto a `canvas` (2× scale for sharpness) and extracts the PNG bytes; then
+[`zip-writer.ts`](../../../src/lib/zip-writer.ts) (`buildZip`) builds the archive and `writeFile` writes
+it (requires `fs:allow-write-file` in the capabilities). Text exporters use `writeTextFile`.
+
+**`zip-writer.ts`** is a hand-written ZIP writer, in pure TypeScript: **STORE** method only (no
+compression), because PNGs are already compressed — deflate would gain a few percent and is not worth an
+extra npm dependency nor shipping the bytes to the Rust backend. It is **deterministic** (fixed entry
+timestamp: two exports of the same map produce an identical file), writes names in UTF-8 (flag bit 11,
+required for map names with accents) and has no ZIP64 support (4 GB per entry and 65535 entries, orders
+of magnitude above an image export).
 
 ```mermaid
 flowchart LR
     Map["keybindMap"] --> Visual["keyboard-visual.ts"]
     Visual -->|buildKeyboardHtml| HTML["html-view → .html<br/>writeTextFile"]
-    Visual -->|buildKeyboardSvg| SVG["image-png → SVG"]
+    Visual -->|"buildKeyboardSvg<br/>(complete + per layer)"| SVG["image-png → images[]"]
     SVG --> Raster["export-dialog: svgToPngBytes<br/>Image → canvas → PNG"]
-    Raster --> Bin["writeFile → .png"]
+    Raster --> Zip["zip-writer: buildZip<br/>(STORE)"]
+    Zip --> Bin["writeFile → .zip"]
 ```
 
 ### `keyset` (active)
@@ -234,6 +281,5 @@ The merge upserts the maps by name (`byName`) and adds the missing categories.
 |---------------------|-------------|
 | `not-installed` | The binding's mod is not among the installed ones → discarded |
 | `unmapped` | The key is not mappable on the layout |
-| `overflow` | Beyond the limit of 4 bindings per key |
 
 Bindings with modifiers (SHIFT/CTRL/ALT) are reconstructed as **macros**.

@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
-import { RefreshCcwIcon, PackageIcon, CircleCheckIcon, CircleSlashIcon, CircleXIcon, SearchIcon, LayersIcon, TriangleAlertIcon } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { RefreshCcwIcon, PackageIcon, CircleCheckIcon, CircleSlashIcon, CircleXIcon, CircleAlertIcon, SearchIcon, LayersIcon, TriangleAlertIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpDownIcon, FilterXIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { useTranslation } from "@/src/i18n/i18n-provider"
@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "../../components/ui/table"
+import { ToggleGroup, ToggleGroupItem } from "../../components/ui/toggle-group"
 import { cn } from "../../lib/utils"
 import { useAppDispatch, useAppSelector } from "../../redux/hooks"
 import { updateProject } from "../../redux/project-slice"
@@ -116,6 +117,10 @@ function modScore(m: mod, query: string): number | null {
 interface scanDiagnostic {
   format: string
   warnings: string[]
+  /** Vincolo di versione MC dichiarato dalla mod (dialetto del suo loader). */
+  mcVersion?: string | null
+  /** Esito del confronto col MC del progetto; null = non verificabile. */
+  mcCompatible?: boolean | null
 }
 
 /**
@@ -131,6 +136,161 @@ function formatLabel(format: string | undefined, t: (key: string) => string): st
   if (format === "unreadable") return t("listmods.formatUnreadable")
   const file = format.split(":")[1]
   return file || format
+}
+
+// ============================================================================
+// ORDINAMENTO E FILTRI DELLA TABELLA MOD
+// ============================================================================
+
+// Colonne ordinabili. Le chiavi NON sono i nomi dei campi: "deps" ordina per
+// numero di dipendenze mancanti, "active" per stato del checkbox.
+type sortKey = "active" | "name" | "version" | "loader" | "mc" | "format" | "authors" | "deps"
+type sortDir = "asc" | "desc"
+type sortState = { key: sortKey; dir: sortDir } | null
+
+// Chip di filtro. `active`/`inactive` sono lo STATO, gli altri sono i PROBLEMI:
+// due gruppi distinti (vedi `matchesFilters`).
+type filterChip = "active" | "inactive" | "missing" | "warnings" | "incompatible"
+
+const STATUS_CHIPS: filterChip[] = ["active", "inactive"]
+
+// Ordinamento di partenza della tabella: alfabetico per nome della mod. L'ordine
+// della scansione è alfabetico per FILENAME, che non coincide col nome mostrato
+// (es. "jei-1.20.1.jar" → "Just Enough Items").
+const DEFAULT_SORT: NonNullable<sortState> = { key: "name", dir: "asc" }
+
+// Confronto naturale: mette "1.10.0" DOPO "1.9.0", che un ordinamento
+// alfabetico sbaglierebbe. Non si usa semver: le versioni delle mod spesso non
+// lo sono ("1.20.1-forge-47.2.0", "v2b", "mc1.12.2-3.1.0").
+const naturalCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" })
+
+interface sortContext {
+  diagnostics: Map<string, scanDiagnostic>
+  installedIds: Set<string>
+  t: (key: string) => string
+}
+
+/**
+ * Valore su cui ordinare una mod per la colonna richiesta. I numeri si
+ * confrontano come numeri, le stringhe col collator naturale.
+ */
+function sortValue(m: mod, key: sortKey, ctx: sortContext): string | number {
+  switch (key) {
+    case "active":
+      // Attive prima in ordine crescente.
+      return m.active ? 0 : 1
+    case "name":
+      return m.name || m.filename
+    case "version":
+      return m.version || ""
+    case "loader":
+      return m.modloader || ""
+    case "format":
+      // Si ordina per l'etichetta MOSTRATA, non per il valore grezzo.
+      return formatLabel(ctx.diagnostics.get(m.filename)?.format, ctx.t)
+    case "mc": {
+      // Come `deps`: in crescente prima chi va bene, i problemi in fondo (e in
+      // cima invertendo l'ordine).
+      const compat = ctx.diagnostics.get(m.filename)?.mcCompatible
+      if (compat === true) return 0
+      if (compat === false) return 2
+      return 1 // non verificabile: in mezzo
+    }
+    case "authors":
+      return (m.authors ?? []).join(", ")
+    case "deps":
+      return missingDependencies(m, ctx.installedIds).length
+  }
+}
+
+/** Comparatore per la colonna/direzione scelte; il nome è il tie-break stabile. */
+function compareMods(a: mod, b: mod, sort: NonNullable<sortState>, ctx: sortContext): number {
+  const va = sortValue(a, sort.key, ctx)
+  const vb = sortValue(b, sort.key, ctx)
+  let diff =
+    typeof va === "number" && typeof vb === "number"
+      ? va - vb
+      : naturalCollator.compare(String(va), String(vb))
+  // A parità di colonna l'ordine resta prevedibile invece di dipendere
+  // dall'ordine di scansione.
+  if (diff === 0 && sort.key !== "name") {
+    diff = naturalCollator.compare(a.name || a.filename, b.name || b.filename)
+  }
+  return sort.dir === "asc" ? diff : -diff
+}
+
+/**
+ * Filtro a chip: OR dentro lo stesso gruppo, AND tra gruppi.
+ * Così "Active" + "Warnings" = le mod attive che hanno avvisi, mentre
+ * "Missing deps" + "Warnings" = quelle con almeno uno dei due problemi.
+ * Un gruppo senza chip selezionati non filtra.
+ */
+function matchesFilters(
+  m: mod,
+  filters: filterChip[],
+  sets: { missing: Set<string>; warnings: Set<string>; incompatible: Set<string> }
+): boolean {
+  const status = filters.filter((f) => STATUS_CHIPS.includes(f))
+  if (status.length > 0) {
+    const ok = status.some((f) => (f === "active" ? m.active : !m.active))
+    if (!ok) return false
+  }
+  const issues = filters.filter((f) => !STATUS_CHIPS.includes(f))
+  if (issues.length > 0) {
+    const ok = issues.some((f) => {
+      if (f === "missing") return sets.missing.has(m.filename)
+      if (f === "incompatible") return sets.incompatible.has(m.filename)
+      return sets.warnings.has(m.filename)
+    })
+    if (!ok) return false
+  }
+  return true
+}
+
+/** Header di colonna cliccabile: asc → desc → nessun ordinamento. */
+function SortableHead({
+  label,
+  column,
+  sort,
+  onSort,
+  className,
+  t,
+}: {
+  label: string
+  column: sortKey
+  sort: sortState
+  onSort: (column: sortKey) => void
+  className?: string
+  t: (key: string, vars?: Record<string, string | number>) => string
+}) {
+  const active = sort?.key === column
+  return (
+    <TableHead
+      className={className}
+      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className={cn(
+          "inline-flex items-center gap-1 hover:text-foreground cursor-pointer",
+          active && "text-foreground font-medium"
+        )}
+        aria-label={t("listmods.sortBy", { column: label })}
+      >
+        {label}
+        {active ? (
+          sort.dir === "asc" ? (
+            <ChevronUpIcon className="size-3.5" />
+          ) : (
+            <ChevronDownIcon className="size-3.5" />
+          )
+        ) : (
+          <ChevronsUpDownIcon className="size-3.5 opacity-40" />
+        )}
+      </button>
+    </TableHead>
+  )
 }
 
 // Colori coerenti con i loader mostrati nella home.
@@ -177,6 +337,10 @@ function ModsList({ project }: { project: project }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
+  // Ordinamento scelto dall'utente; null = nessuna scelta, si usa `DEFAULT_SORT`
+  // (o la rilevanza della ricerca, vedi `effectiveSort`).
+  const [sort, setSort] = useState<sortState>(null)
+  const [filters, setFilters] = useState<filterChip[]>([])
 
   const workpath = project.configs.workpath
   const mods = project.mods
@@ -194,7 +358,15 @@ function ModsList({ project }: { project: project }) {
   const applyDiagnostics = useCallback((scanned: scannedMod[]) => {
     setDiagnostics(
       new Map(
-        scanned.map((s) => [s.filename, { format: s.format ?? "", warnings: s.warnings ?? [] }])
+        scanned.map((s) => [
+          s.filename,
+          {
+            format: s.format ?? "",
+            warnings: s.warnings ?? [],
+            mcVersion: s.mcVersion ?? null,
+            mcCompatible: s.mcCompatible ?? null,
+          },
+        ])
       )
     )
   }, [])
@@ -329,28 +501,111 @@ function ModsList({ project }: { project: project }) {
   // Insieme dei modId disponibili dalle mod attive: include tutti i `provides`
   // (modId multipli, campo provides e dipendenze incluse via JarJar). Fallback al
   // modId per progetti salvati prima dell'introduzione di `provides`.
-  const installedIds = new Set(
-    mods
-      .filter((m) => m.active)
-      .flatMap((m) => (m.provides?.length ? m.provides : [m.modId ?? ""]))
-      .map((id) => id.toLowerCase())
+  // Memoizzati: sono la base del filtro/ordinamento della tabella, e ricrearli a
+  // ogni render vanificherebbe la memoizzazione di `visibleMods`.
+  const installedIds = useMemo(
+    () =>
+      new Set(
+        mods
+          .filter((m) => m.active)
+          .flatMap((m) => (m.provides?.length ? m.provides : [m.modId ?? ""]))
+          .map((id) => id.toLowerCase())
+      ),
+    [mods]
   )
 
-  const missing = mods.filter((m) => m.active && missingDependencies(m, installedIds).length > 0)
+  const missing = useMemo(
+    () => mods.filter((m) => m.active && missingDependencies(m, installedIds).length > 0),
+    [mods, installedIds]
+  )
   // Mod il cui jar ha prodotto avvisi in scansione (formato inatteso, metadati
   // malformati, nessun file di lingua...): vanno guardate a occhio.
-  const withWarnings = mods.filter((m) => (diagnostics.get(m.filename)?.warnings.length ?? 0) > 0)
+  const withWarnings = useMemo(
+    () => mods.filter((m) => (diagnostics.get(m.filename)?.warnings.length ?? 0) > 0),
+    [mods, diagnostics]
+  )
+  // Mod il cui vincolo di versione MC dichiarato NON copre la versione del
+  // progetto. A differenza delle dipendenze mancanti si contano anche le mod
+  // disattivate: il dato dipende dal jar, non dallo stato del checkbox.
+  const incompatible = useMemo(
+    () => mods.filter((m) => diagnostics.get(m.filename)?.mcCompatible === false),
+    [mods, diagnostics]
+  )
 
-  // Lista mostrata: senza query mantiene l'ordine originale; con query filtra
-  // per match fuzzy e ordina per rilevanza (punteggio decrescente).
+  // Lista mostrata, in tre passaggi: chip → ricerca → ordinamento.
   const query = search.trim()
-  const visibleMods = query
-    ? mods
-        .map((m) => ({ m, score: modScore(m, query) }))
-        .filter((x): x is { m: mod; score: number } => x.score !== null)
-        .sort((a, b) => b.score - a.score)
-        .map((x) => x.m)
-    : mods
+
+  // Ordinamento effettivo: quello scelto dall'utente se c'è, altrimenti il
+  // default per nome — tranne mentre si cerca, dove senza una scelta esplicita
+  // conta la rilevanza fuzzy (ordinare per nome i risultati di una ricerca
+  // sotterrerebbe il match migliore).
+  const effectiveSort: sortState = sort ?? (query ? null : DEFAULT_SORT)
+  const missingSet = useMemo(() => new Set(missing.map((m) => m.filename)), [missing])
+  const warningsSet = useMemo(() => new Set(withWarnings.map((m) => m.filename)), [withWarnings])
+  const incompatibleSet = useMemo(
+    () => new Set(incompatible.map((m) => m.filename)),
+    [incompatible]
+  )
+
+  const visibleMods = useMemo(() => {
+    const byChips =
+      filters.length > 0
+        ? mods.filter((m) =>
+            matchesFilters(m, filters, {
+              missing: missingSet,
+              warnings: warningsSet,
+              incompatible: incompatibleSet,
+            })
+          )
+        : mods
+
+    const bySearch = query
+      ? byChips
+          .map((m) => ({ m, score: modScore(m, query) }))
+          .filter((x): x is { m: mod; score: number } => x.score !== null)
+          .sort((a, b) => b.score - a.score)
+          .map((x) => x.m)
+      : byChips
+
+    if (!effectiveSort) return bySearch
+    const ctx: sortContext = { diagnostics, installedIds, t }
+    // Copia: `sort` in place muterebbe l'array derivato da Redux.
+    return [...bySearch].sort((a, b) => compareMods(a, b, effectiveSort, ctx))
+  }, [
+    mods,
+    filters,
+    missingSet,
+    warningsSet,
+    incompatibleSet,
+    query,
+    effectiveSort,
+    diagnostics,
+    installedIds,
+    t,
+  ])
+
+  const filtersActive = filters.length > 0
+  // Righe nascoste da ricerca o chip: serve a distinguere "nessuna mod" da
+  // "nessun risultato" e a decidere se mostrare il contatore parziale.
+  const isNarrowed = !!query || filtersActive
+
+  function toggleSort(column: sortKey) {
+    setSort((current) => {
+      // Il ciclo parte da ciò che l'utente VEDE, non dallo stato interno: se la
+      // tabella è già ordinata per nome (default), il primo click su "Mod" deve
+      // invertire l'ordine, non riapplicare il crescente.
+      const active = current ?? (query ? null : DEFAULT_SORT)
+      if (active?.key !== column) return { key: column, dir: "asc" }
+      if (active.dir === "asc") return { key: column, dir: "desc" }
+      // Terzo click: si torna al default (per nome, o alla rilevanza se si sta cercando).
+      return null
+    })
+  }
+
+  function clearFilters() {
+    setFilters([])
+    setSearch("")
+  }
 
   // Datapack: totali + filtro semplice per nome/file.
   const dpTotal = datapacks.length
@@ -390,6 +645,12 @@ function ModsList({ project }: { project: project }) {
           className="bg-red-500/10"
         />
         <SummaryCard
+          label={t("listmods.incompatible")}
+          value={incompatible.length}
+          icon={<CircleAlertIcon className="size-5 text-red-500" />}
+          className="bg-red-500/10"
+        />
+        <SummaryCard
           label={t("listmods.withWarnings")}
           value={withWarnings.length}
           icon={<TriangleAlertIcon className="size-5 text-amber-500" />}
@@ -403,7 +664,7 @@ function ModsList({ project }: { project: project }) {
             {t("listmods.mods")}{" "}
             {total > 0 && (
               <span className="text-muted-foreground text-base">
-                ({query ? `${visibleMods.length}/${total}` : total})
+                ({isNarrowed ? `${visibleMods.length}/${total}` : total})
               </span>
             )}
           </CardTitle>
@@ -425,33 +686,100 @@ function ModsList({ project }: { project: project }) {
             </div>
           ) : (
             <div className="flex flex-col gap-4">
-              <div className="relative">
-                <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  type="search"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder={t("listmods.searchModsPlaceholder")}
-                  className="h-9 pl-8"
-                  aria-label={t("listmods.searchMods")}
-                />
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative min-w-56 flex-1">
+                  <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    type="search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder={t("listmods.searchModsPlaceholder")}
+                    className="h-9 pl-8"
+                    aria-label={t("listmods.searchMods")}
+                  />
+                </div>
+                {/* Chip di filtro: multi-selezione, col conteggio delle mod in
+                    ciascuno stato (gli stessi numeri delle card di riepilogo). */}
+                <ToggleGroup
+                  type="multiple"
+                  value={filters}
+                  onValueChange={(value: string[]) => setFilters(value as filterChip[])}
+                  variant="outline"
+                  size="lg"
+                  className="flex-wrap"
+                  aria-label={t("listmods.filters")}
+                >
+                  <ToggleGroupItem
+                    value="active"
+                    className="data-[state=on]:border-emerald-500 data-[state=on]:text-emerald-500"
+                  >
+                    <CircleCheckIcon className="size-3.5" />
+                    {t("listmods.active")}
+                    <span className="text-muted-foreground text-xs">{activeCount}</span>
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="inactive"
+                    className="data-[state=on]:border-amber-500 data-[state=on]:text-amber-500"
+                  >
+                    <CircleSlashIcon className="size-3.5" />
+                    {t("listmods.inactive")}
+                    <span className="text-muted-foreground text-xs">{inactiveCount}</span>
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="missing"
+                    className="data-[state=on]:border-red-500 data-[state=on]:text-red-500"
+                  >
+                    <CircleXIcon className="size-3.5" />
+                    {t("listmods.missingDependencies")}
+                    <span className="text-muted-foreground text-xs">{missing.length}</span>
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="incompatible"
+                    className="data-[state=on]:border-red-500 data-[state=on]:text-red-500"
+                  >
+                    <CircleAlertIcon className="size-3.5" />
+                    {t("listmods.incompatible")}
+                    <span className="text-muted-foreground text-xs">{incompatible.length}</span>
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="warnings"
+                    className="data-[state=on]:border-amber-500 data-[state=on]:text-amber-500"
+                  >
+                    <TriangleAlertIcon className="size-3.5" />
+                    {t("listmods.withWarnings")}
+                    <span className="text-muted-foreground text-xs">{withWarnings.length}</span>
+                  </ToggleGroupItem>
+                </ToggleGroup>
+                {isNarrowed && (
+                  <Button variant="ghost" size="sm" onClick={clearFilters}>
+                    <FilterXIcon className="size-3.5" />
+                    {t("listmods.clearFilters")}
+                  </Button>
+                )}
               </div>
-              {query && visibleMods.length === 0 ? (
+              {isNarrowed && visibleMods.length === 0 ? (
                 <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
                   <SearchIcon className="size-10 text-muted-foreground" />
-                  <p className="text-muted-foreground">{t("listmods.noModsMatch", { query })}</p>
+                  <p className="text-muted-foreground">
+                    {query ? t("listmods.noModsMatch", { query }) : t("listmods.noModsMatchFilters")}
+                  </p>
+                  <Button variant="outline" size="sm" onClick={clearFilters}>
+                    <FilterXIcon className="size-3.5" />
+                    {t("listmods.clearFilters")}
+                  </Button>
                 </div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-12 text-center">{t("listmods.on")}</TableHead>
-                      <TableHead>{t("listmods.mod")}</TableHead>
-                      <TableHead className="w-32">{t("listmods.version")}</TableHead>
-                      <TableHead className="w-28">{t("listmods.loader")}</TableHead>
-                      <TableHead className="w-40">{t("listmods.format")}</TableHead>
-                      <TableHead>{t("listmods.authors")}</TableHead>
-                      <TableHead className="w-40">{t("listmods.dependencies")}</TableHead>
+                      <SortableHead label={t("listmods.on")} column="active" sort={effectiveSort} onSort={toggleSort} className="w-12" t={t} />
+                      <SortableHead label={t("listmods.mod")} column="name" sort={effectiveSort} onSort={toggleSort} t={t} />
+                      <SortableHead label={t("listmods.version")} column="version" sort={effectiveSort} onSort={toggleSort} className="w-32" t={t} />
+                      <SortableHead label={t("listmods.loader")} column="loader" sort={effectiveSort} onSort={toggleSort} className="w-28" t={t} />
+                      <SortableHead label={t("listmods.mcVersion")} column="mc" sort={effectiveSort} onSort={toggleSort} className="w-36" t={t} />
+                      <SortableHead label={t("listmods.format")} column="format" sort={effectiveSort} onSort={toggleSort} className="w-40" t={t} />
+                      <SortableHead label={t("listmods.authors")} column="authors" sort={effectiveSort} onSort={toggleSort} t={t} />
+                      <SortableHead label={t("listmods.dependencies")} column="deps" sort={effectiveSort} onSort={toggleSort} className="w-40" t={t} />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -473,6 +801,52 @@ function ModsList({ project }: { project: project }) {
                           <Badge variant="outline" className={cn("capitalize", LOADER_STYLES[m.modloader])}>
                             {m.modloader}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            // Compatibilità col Minecraft del progetto: si mostra
+                            // il vincolo dichiarato dalla mod, colorato secondo
+                            // l'esito. Grigio = non verificabile (sintassi non
+                            // riconosciuta): NON è un errore della mod.
+                            const diag = diagnostics.get(m.filename)
+                            const constraint = diag?.mcVersion
+                            if (!constraint) {
+                              return <span className="text-muted-foreground">—</span>
+                            }
+                            const compat = diag?.mcCompatible
+                            const mcTarget = project.modloader.mcversion
+                            return (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="flex cursor-default items-center gap-2">
+                                    <span
+                                      className={cn(
+                                        "size-2.5 shrink-0 rounded-full",
+                                        compat === true && "bg-emerald-500",
+                                        compat === false && "bg-red-500",
+                                        compat == null && "bg-muted-foreground"
+                                      )}
+                                    />
+                                    <span
+                                      className={cn(
+                                        "truncate font-mono text-xs",
+                                        compat === false ? "text-red-500" : "text-muted-foreground"
+                                      )}
+                                    >
+                                      {constraint}
+                                    </span>
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-80">
+                                  {compat === false
+                                    ? t("listmods.mcIncompatible", { constraint, mc: mcTarget })
+                                    : compat === true
+                                      ? t("listmods.mcCompatible", { constraint, mc: mcTarget })
+                                      : t("listmods.mcUnchecked", { constraint })}
+                                </TooltipContent>
+                              </Tooltip>
+                            )
+                          })()}
                         </TableCell>
                         <TableCell>
                           {(() => {

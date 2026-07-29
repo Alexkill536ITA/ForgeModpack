@@ -11,6 +11,9 @@ From the maps bar, the **Export** button opens a window where you choose:
 2. **Which map** to export — appears only if the format supports it (see below).
 3. **Where to save** the file (in the workspace folder or in a location of your choice).
 
+> The window **does not close** on an outside click: the configuration takes several steps and one stray
+> click made you lose it. To close it use the **X** at the top right or **Esc**.
+
 ```mermaid
 graph LR
     E["Export"] --> Fmt["Choose format"]
@@ -25,9 +28,9 @@ Depending on the format, the map choice changes:
 |--------|------------|
 | **Keyset** (`keybindprofiles.json`) | none: exports **all** maps together into the single file |
 | **Minecraft `options.txt`** | a single map |
-| **HTML / PNG** | one map, or **All** = one file per map |
+| **HTML / Images (ZIP)** | one map, or **All** = one file per map |
 
-With **All** (HTML/PNG only) you can save the files into the workspace folder or pick a destination
+With **All** (HTML/Images only) you can save the files into the workspace folder or pick a destination
 **folder**.
 
 ### `options.txt` format (Minecraft)
@@ -64,18 +67,26 @@ for sharing it or documenting your modpack. Pick the format in the **Export** di
   opens a window listing that key's **actions** and its **mod**. The legend at the top lets you
   **filter** keys by mod or by tag. It's view-only (it doesn't change the project) and works
   **offline** too.
-- **Image (PNG)** — generates a `.png` **image** of the keyboard, with a **legend of the mod colors** at
-  the bottom, ready to drop into a guide, a post or a README.
+- **Images (ZIP of PNG)** — generates a `.zip` archive with the keyboard images, ready to drop into a
+  guide, a post or a README. Inside you get a **folder named after the map** and:
+
+  | File | What it shows |
+  |------|---------------|
+  | `complete.png` | the **whole** map, all layers together (shared keys stay split into tiles) |
+  | `layer-1.png`, `layer-2.png`, … | **one image per layer**: a single action per key, at full color |
+
+  Every image carries the map name and the layer at the top, and the **legend of the mod colors** at the
+  bottom. If the map has a single layer the archive holds only `complete.png` (the others would be the
+  same image).
 
 ```mermaid
 graph LR
     E["Export"] --> F{"Format"}
-    F -->|Interactive HTML| H["interactive .html file<br/>(tooltips + filters)"]
-    F -->|Image PNG| P[".png image"]
+    F -->|Interactive HTML| H["interactive .html file<br/>(layers + filters)"]
+    F -->|Images ZIP| P[".zip archive<br/>complete + one per layer"]
 ```
 
-Both reflect the selected map, with the mod colors and multi-action keys split into rectangles, exactly
-like in the Keybinds page.
+Both reflect the selected map with the mod colors, exactly like in the Keybinds page — layers included.
 
 ## Importing keybinds
 
@@ -104,7 +115,6 @@ When finished, you see a table with any **skipped** commands and the reason:
 |--------|---------|
 | **not-installed** | The mod for that command is not among the installed ones → discarded |
 | **unmapped** | The key cannot be represented on the app's keyboard |
-| **overflow** | The key already had 4 commands (the maximum) → not added |
 
 Commands "without a key" (unassigned) are simply ignored, without ending up among the problems.
 

@@ -42,7 +42,15 @@ Editor di metadata, modloader/versioni e assets.
 - **Bootstrap** (una volta, ref anti-StrictMode): `getMinecraftManifestCached()` +
   `getModLoaderManifestCached()` in parallelo → dispatch.
 - **`handleUpdateField(path, value)`**: `setByPath` sul project; azzera `modloader.version` quando
-  cambia `mcversion`/`type`; uscendo da DATAPACK azzera `hybrid`/`hybridLoader`.
+  cambia `mcversion`/`type`; uscendo da DATAPACK azzera `hybrid`/`hybridLoader`; scendendo sotto
+  MC 1.13 con `type = DATAPACK` riporta il loader a FORGE e azzera l'ibrido (con toast), perché i
+  datapack non esistono prima della 1.13.
+- **Loader non disponibili per versione**: `isBelowMcMinor(mc, minMinor)` (helper puro) alimenta
+  `neoforgeDisabled` (`NEOFORGE_MIN_MINOR = 20`) e `datapackDisabled` (`DATAPACK_MIN_MINOR = 13`) →
+  `disabled` sui rispettivi `ToggleGroupItem`. L'helper ragiona **solo** sullo schema "1.x" (la minor
+  è la generazione del gioco); con `major != "1"` (nuovi schemi tipo "26.1") la feature esiste sempre,
+  e senza versione scelta il toggle resta disabilitato. Sotto i toggle compare una riga che spiega
+  da quale versione i datapack esistono (un toggle disabilitato senza motivo sembra un bug).
 - **Versioni filtrate** (useMemo): `minecraftVersions` (solo `release`), `forgeVersions`,
   `neoforgeVersions` (min minor 20), `fabricVersions`, `quiltVersions` → `modloaderVersions` scelte in
   base a `effectiveLoader` (il type stesso, oppure `hybridLoader` in modalità datapack+hybrid).
@@ -70,8 +78,30 @@ Scansiona `mods/` (e `datapacks/`), elenca con toggle attivo, ricerca fuzzy, ver
 - **`missingDependencies`**: dipendenze `mandatory` non in `RUNTIME_DEPS` né in `installedIds`
   (unione dei `provides` — o `modId` fallback — delle mod **attive**).
 - **`fuzzyMatch`/`modScore`**: ricerca a sottosequenza con punteggio; ordina `visibleMods`.
-- **UI**: `SummaryCard` (totale/attive/inattive), tabella mod (On/Mod/Version/Loader/Authors/
-  Dependencies con pallino verde/rosso + tooltip mancanti) e tabella datapack.
+- **`visibleMods`** (useMemo): pipeline a tre passaggi **chip → ricerca → ordinamento**.
+  `installedIds`/`missing`/`withWarnings` sono memoizzati: ricreandoli a ogni render la memoizzazione
+  della pipeline sarebbe inutile.
+- **Ordinamento di default**: `effectiveSort = sort ?? (query ? null : DEFAULT_SORT)` con
+  `DEFAULT_SORT = {key: "name", dir: "asc"}`. La tabella parte quindi **alfabetica per nome** (l'ordine
+  della scansione è alfabetico per *filename*, che non coincide col nome mostrato); mentre si cerca,
+  senza una scelta esplicita, vince la **rilevanza fuzzy** (ordinare per nome i risultati di una
+  ricerca sotterrerebbe il match migliore). Un ordinamento cliccato **batte** sempre la rilevanza.
+  `effectiveSort` è ciò che alimenta sia la pipeline sia le frecce degli header.
+- **Ordinamento**: `sortState = {key, dir} | null`, ciclo `asc → desc → null` su click dell'header
+  (`SortableHead`, con `aria-sort`; il ciclo parte da `effectiveSort`, non dallo stato interno, così il
+  primo click su "Mod" **inverte** l'ordine già visibile invece di riapplicarlo — e il terzo click
+  torna al default). `sortValue` mappa la colonna sul valore da confrontare (`active`
+  → 0/1, `deps` → numero di mancanti, `format` → etichetta **mostrata**); `compareMods` usa un
+  `Intl.Collator({numeric: true})` — confronto **naturale**, così "1.10.0" viene dopo "1.9.0" — e il
+  nome come tie-break stabile. Non si usa semver: le versioni delle mod spesso non lo sono
+  (`1.20.1-forge-47.2.0`). Si ordina una **copia** (l'array viene da Redux).
+- **Filtri a chip** (`ToggleGroup` multiplo): `matchesFilters` con OR **dentro** il gruppo e AND
+  **tra** gruppi — gruppo stato (`active`/`inactive`) e gruppo problemi (`missing`/`warnings`). I
+  conteggi sui chip sono gli stessi delle `SummaryCard`; siccome `missing` considera solo le mod
+  attive, "inactive + missing" è per costruzione vuoto.
+- **UI**: `SummaryCard` (totale/attive/inattive/mancanti/avvisi), barra ricerca + chip + "Azzera
+  filtri", tabella mod con header ordinabili (On/Mod/Version/Loader/Format/Authors/Dependencies con
+  pallino verde/rosso + tooltip mancanti) e tabella datapack (senza sort/chip: solo ricerca).
 
 ```mermaid
 flowchart LR

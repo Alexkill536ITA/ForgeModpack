@@ -3,6 +3,7 @@ mod class_scan;
 mod files;
 mod forge_spec;
 mod keybind_scan;
+mod mc_compat;
 mod mods;
 
 use tauri_plugin_sql::{Migration, MigrationKind};

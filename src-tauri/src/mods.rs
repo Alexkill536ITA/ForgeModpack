@@ -30,6 +30,7 @@ use zip::ZipArchive;
 
 use crate::forge_spec::{self, DepStyle, ForgeSpec, KeybindApi, LangKind, MetaFormat};
 use crate::keybind_scan;
+use crate::mc_compat;
 
 // Nomi dei file di metadati riconosciuti.
 const NEOFORGE_TOML: &str = "META-INF/neoforge.mods.toml";
@@ -87,6 +88,14 @@ pub struct ScannedMod {
     /// Formato di metadati effettivamente rilevato, es. "forge:mods.toml",
     /// "forge:mcmod.info", "fabric", "unknown:manifest". Usato dalla diagnostica.
     pub format: String,
+    /// Vincolo di versione Minecraft dichiarato dalla mod, nel dialetto del suo
+    /// loader (range Maven per Forge/NeoForge, espressione semver per
+    /// Fabric/Quilt, `mcversion` per il legacy). `None` se la mod non lo dichiara.
+    pub mc_version: Option<String>,
+    /// Esito del confronto tra `mc_version` e la versione MC del progetto:
+    /// `None` = non verificabile (vincolo assente, sintassi sconosciuta, o
+    /// nessuna versione MC nel progetto).
+    pub mc_compatible: Option<bool>,
     /// Problemi riscontrati leggendo il jar (mostrati in List Mods). In inglese,
     /// come i warning degli exporter.
     pub warnings: Vec<String>,
@@ -106,6 +115,8 @@ fn empty_mod(filename: &str, modloader: &str, format: &str) -> ScannedMod {
         provides: Vec::new(),
         keybinds: Vec::new(),
         format: format.to_string(),
+        mc_version: None,
+        mc_compatible: None,
         warnings: Vec::new(),
     }
 }
@@ -265,7 +276,7 @@ fn declared_dep_style(entry: &toml::Value) -> (bool, bool) {
 }
 
 /// Le dipendenze stanno in `[[dependencies.<modId>]]`. Il lookup e'
-/// **case-insensitive** (alcuni mod dichiarano `modId = "MyMod"` e
+/// case-insensitive (alcuni mod dichiarano `modId = "MyMod"` e
 /// `[[dependencies.mymod]]`) e considera TUTTI i modId dichiarati nel jar.
 /// Se nessuna chiave combacia ma la tabella non e' vuota, le entry vengono usate
 /// comunque (con warning): meglio una dipendenza in piu' che una verifica muta.
@@ -594,6 +605,8 @@ fn parse_mcmod_info(filename: &str, json_str: &str, manifest: Option<&str>) -> S
         &mut scanned.warnings,
     );
     scanned.description = text("description");
+    // Nel legacy il vincolo MC non e' una dipendenza ma un campo suo.
+    scanned.mc_version = text("mcversion");
 
     // authorList (standard) oppure authors (usato da alcuni mod).
     scanned.authors = ["authorList", "authors"]
@@ -944,8 +957,14 @@ fn unknown_mod(filename: &str, manifest: Option<&str>) -> ScannedMod {
 /// `spec` e' il formato ATTESO per la versione MC del progetto: usato come
 /// tie-break e per la diagnostica, mai come unica fonte di verita'. `keybind_api`
 /// e' l'API keybind attesa per quella versione (solo diagnostica: le classi SDK
-/// vengono cercate tutte, vedi `keybind_scan`).
-fn read_mod(path: &Path, spec: &ForgeSpec, keybind_api: Option<KeybindApi>) -> ScannedMod {
+/// vengono cercate tutte, vedi `keybind_scan`). `mc` e' la versione MC del
+/// progetto, contro cui si verifica il vincolo dichiarato dalla mod.
+fn read_mod(
+    path: &Path,
+    spec: &ForgeSpec,
+    keybind_api: Option<KeybindApi>,
+    mc: Option<&str>,
+) -> ScannedMod {
     let filename = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -1052,6 +1071,29 @@ fn read_mod(path: &Path, spec: &ForgeSpec, keybind_api: Option<KeybindApi>) -> S
         }
     }
 
+    // Compatibilita' con la versione MC del progetto. Il vincolo sta nella
+    // dipendenza verso `minecraft` (Forge/NeoForge/Fabric/Quilt) oppure nel campo
+    // `mcversion` (legacy, gia' letto dal parser). Un vincolo assente o in una
+    // sintassi non riconosciuta resta `None`: si mostra "sconosciuto", non un
+    // falso allarme.
+    if scanned.mc_version.is_none() {
+        scanned.mc_version = mc_compat::constraint_from_deps(
+            scanned
+                .dependencies
+                .iter()
+                .map(|d| (d.name.as_str(), d.version.as_str())),
+        );
+    }
+    if let (Some(constraint), Some(project_mc)) = (scanned.mc_version.as_deref(), mc) {
+        scanned.mc_compatible = mc_compat::matches(constraint, project_mc);
+        if scanned.mc_compatible == Some(false) {
+            scanned.warnings.push(format!(
+                "Declares Minecraft {} but the project targets {}.",
+                constraint, project_mc
+            ));
+        }
+    }
+
     // modId forniti: propri + provides + dipendenze incluse (JarJar).
     let mut provides = collect_provides(&mut archive);
     provides.extend(collect_jarjar_provides(&mut archive));
@@ -1135,6 +1177,9 @@ pub fn scan_mods(
 ) -> Result<Vec<ScannedMod>, String> {
     let spec = forge_spec::spec_for(mc.as_deref(), forge.as_deref());
     let keybind_api = forge_spec::keybind_api_for(mc.as_deref(), forge.as_deref());
+    // `&str` invece di `Option<String>`: e' Copy, quindi ogni thread lo cattura
+    // senza consumare `mc` (che serve a tutti i chunk).
+    let mc_hint: Option<&str> = mc.as_deref();
     let entries = fs::read_dir(&dir).map_err(|e| e.to_string())?;
 
     let paths: Vec<std::path::PathBuf> = entries
@@ -1161,7 +1206,7 @@ pub fn scan_mods(
                 scope.spawn(move || {
                     chunk
                         .iter()
-                        .map(|p| read_mod(p, spec, keybind_api))
+                        .map(|p| read_mod(p, spec, keybind_api, mc_hint))
                         .collect::<Vec<ScannedMod>>()
                 })
             })
@@ -1867,6 +1912,14 @@ mod tests {
             modern.warnings
         );
 
+        // Compatibilita' MC: il legacy dichiara `mcversion` (e il progetto e'
+        // proprio su quella versione), il moderno non dichiara nulla su
+        // minecraft, quindi resta non verificabile.
+        assert_eq!(legacy.mc_version, None, "questo mcmod.info non ha mcversion");
+        assert_eq!(legacy.mc_compatible, None);
+        assert_eq!(modern.mc_version, None, "nessuna dipendenza su minecraft");
+        assert_eq!(modern.mc_compatible, None);
+
         // Risoluzione mirata: trova una chiave SENZA marcatore dentro un .lang.
         let resolved = resolve_keybind_labels(
             path.clone(),
@@ -1884,6 +1937,89 @@ mod tests {
 
     /// Keybind dichiarate nel bytecode: chiave senza marcatore riconosciuta, e
     /// diagnostica quando l'era della classe keybind non e' quella della versione
+    /// Verifica della compatibilita' con la versione MC del progetto: il vincolo
+    /// arriva dalla dipendenza verso `minecraft` (moderni) o da `mcversion`
+    /// (legacy), e chi non lo dichiara NON diventa "incompatibile".
+    #[test]
+    fn verifica_compatibilita_versione_mc() {
+        let dir = std::env::temp_dir().join(format!("fmp-mccompat-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        write_jar(
+            &dir,
+            "ok.jar",
+            &[(
+                "META-INF/mods.toml",
+                "[[mods]]\nmodId=\"jei\"\ndisplayName=\"JEI\"\nversion=\"15.2.0\"\n\n[[dependencies.jei]]\nmodId=\"minecraft\"\nmandatory=true\nversionRange=\"[1.20.1,1.21)\"\n",
+            )],
+        );
+        write_jar(
+            &dir,
+            "vecchia.jar",
+            &[(
+                "META-INF/mods.toml",
+                "[[mods]]\nmodId=\"old\"\ndisplayName=\"Old\"\nversion=\"1.0\"\n\n[[dependencies.old]]\nmodId=\"minecraft\"\nmandatory=true\nversionRange=\"[1.19.2,1.20)\"\n",
+            )],
+        );
+        write_jar(
+            &dir,
+            "fabric.jar",
+            &[(
+                "fabric.mod.json",
+                r#"{"id":"sodium","name":"Sodium","version":"0.5.8","depends":{"minecraft":">=1.20.1 <1.21"}}"#,
+            )],
+        );
+        write_jar(
+            &dir,
+            "muta.jar",
+            &[(
+                "META-INF/mods.toml",
+                "[[mods]]\nmodId=\"quiet\"\ndisplayName=\"Quiet\"\nversion=\"1.0\"\n",
+            )],
+        );
+
+        let path = dir.to_string_lossy().to_string();
+        let mods = scan_mods(path, Some("1.20.1".into()), None).unwrap();
+        let get = |name: &str| mods.iter().find(|m| m.filename == name).unwrap();
+
+        let ok = get("ok.jar");
+        assert_eq!(ok.mc_version.as_deref(), Some("[1.20.1,1.21)"));
+        assert_eq!(ok.mc_compatible, Some(true));
+        assert!(
+            !ok.warnings.iter().any(|w| w.contains("targets")),
+            "nessun avviso di versione: {:?}",
+            ok.warnings
+        );
+
+        let vecchia = get("vecchia.jar");
+        assert_eq!(vecchia.mc_compatible, Some(false));
+        assert!(
+            vecchia
+                .warnings
+                .iter()
+                .any(|w| w.contains("Declares Minecraft [1.19.2,1.20)") && w.contains("1.20.1")),
+            "atteso avviso di incompatibilita': {:?}",
+            vecchia.warnings
+        );
+
+        // Fabric: dialetto diverso, stessa verifica.
+        let fabric = get("fabric.jar");
+        assert_eq!(fabric.mc_version.as_deref(), Some(">=1.20.1 <1.21"));
+        assert_eq!(fabric.mc_compatible, Some(true));
+
+        // Chi non dichiara nulla resta "sconosciuto", non incompatibile.
+        let muta = get("muta.jar");
+        assert_eq!(muta.mc_version, None);
+        assert_eq!(muta.mc_compatible, None);
+
+        // Senza versione MC nel progetto non si verifica niente.
+        let senza_hint = scan_mods(dir.to_string_lossy().to_string(), None, None).unwrap();
+        assert!(senza_hint.iter().all(|m| m.mc_compatible.is_none()));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     /// MC del progetto.
     #[test]
     fn scansione_keybind_dal_bytecode() {
