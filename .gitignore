@@ -30,3 +30,4 @@ out
 public/monaco
 .claude
 .opencode
+next-env.d.ts
