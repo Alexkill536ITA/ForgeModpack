@@ -49,6 +49,7 @@ La tabella mostra per ogni mod:
 | **Format** | Da quale file sono stati letti i dati (vedi sotto) |
 | **Authors** | Autori |
 | **Dependencies** | Stato delle dipendenze (vedi sotto) |
+| **Actions** | Nota libera e correzione dei controlli (vedi sotto) |
 
 ### Attivare e disattivare le mod
 
@@ -168,6 +169,52 @@ racchiudono le librerie di cui hanno bisogno), quindi riduce i falsi allarmi.
 
 > 💡 Se apri un progetto vecchio e vedi molti falsi "manca dipendenza", premi **Refresh**: una nuova
 > scansione riconosce meglio le librerie incluse.
+
+## Note e falsi positivi (colonna Actions)
+
+L'ultima colonna della tabella, **Actions**, apre col pulsante `⋯` due azioni per ogni mod.
+
+### Nota
+
+**Add note** apre una finestra dove scrivere un promemoria libero sulla mod (per esempio "non
+aggiornare: la versione nuova rompe le ricette"). Dopo il salvataggio compare una piccola icona
+**giallo/ambra** nell'angolo in alto a destra della cella del nome: passandoci sopra leggi la nota,
+cliccandola la modifichi. Per togliere la nota riapri la finestra e premi **Rimuovi nota**.
+
+La nota resta nel progetto e **sopravvive** al Refresh e alla riapertura: la scansione dei jar non la
+cancella. Sparisce solo se togli la mod dalla cartella.
+
+### Segna come falso positivo
+
+I controlli automatici (MC, Format/avvisi, Dependencies) leggono quello che gli autori delle mod
+hanno scritto nei metadati, e a volte quei dati sono incompleti o sbagliati: il risultato è un
+allarme che non corrisponde alla realtà. **Segna come falso positivo** apre una finestra che elenca
+i problemi trovati per quella mod, **una sezione per ogni colonna di controllo**:
+
+| Sezione | Cosa puoi fare |
+|---------|----------------|
+| **Versione Minecraft** | Scrivere il vincolo corretto e/o dichiarare che la mod è compatibile |
+| **Dipendenze mancanti** | Correggere il modId cercato (una per una) o dichiarare che non manca |
+| **Avvisi di scansione** | Silenziare i singoli avvisi che non sono problemi reali |
+
+Per ogni voce hai l'interruttore **Falso positivo** e un campo **Motivo**: scrivere il perché non è
+obbligatorio, ma è il senso della funzione — chi riapre il progetto (o tu fra sei mesi) deve capire
+perché quell'allarme è stato messo a tacere.
+
+- Correggendo un **modId** vedi subito se ora risulta installato ("Risolto dalla correzione").
+- Correggendo solo il **vincolo MC** (senza spuntare "Falso positivo") il pallino diventa **grigio**,
+  cioè "non verificabile": il confronto automatico era stato fatto sul vincolo vecchio, quindi non
+  vale più. Se sai che la mod funziona, spunta anche **Falso positivo**.
+- Ciò che marchi come falso positivo **esce dai conteggi** delle card in alto e dai filtri a chip: la
+  mod non risulta più problematica.
+- Al suo posto, nella cella, compare una piccola **chiave inglese**: passandoci sopra vedi cosa è
+  stato corretto a mano e con quale motivo. Serve a non confondere "controllo superato" con
+  "controllo messo a tacere".
+- Le correzioni sono **una per problema**, non per colonna intera: se dopo un aggiornamento del jar
+  compare una dipendenza mancante nuova, la vedi comunque.
+
+> 💡 Se la finestra dice "Nessun problema rilevato per questa mod", non c'è nulla da correggere:
+> quella mod ha superato tutti i controlli.
 
 ## Datapack
 

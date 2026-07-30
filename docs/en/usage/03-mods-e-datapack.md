@@ -49,6 +49,7 @@ The table shows, for each mod:
 | **Format** | Which file the data was read from (see below) |
 | **Authors** | Authors |
 | **Dependencies** | Dependency status (see below) |
+| **Actions** | Free note and check corrections (see below) |
 
 ### Enabling and disabling mods
 
@@ -165,6 +166,51 @@ libraries they need), so it reduces false alarms.
 
 > 💡 If you open an old project and see lots of false "missing dependency" warnings, press **Refresh**:
 > a fresh scan recognizes bundled libraries better.
+
+## Notes and false positives (Actions column)
+
+The last column of the table, **Actions**, opens two per-mod actions from the `⋯` button.
+
+### Note
+
+**Add note** opens a window where you can write a free reminder about the mod (for example "do not
+update: the new version breaks the recipes"). After saving, a small **amber** icon appears in the
+top-right corner of the name cell: hover it to read the note, click it to edit. To drop the note,
+reopen the window and press **Remove note**.
+
+The note lives in the project and **survives** Refresh and reopening: scanning the jars does not wipe
+it. It only disappears if you remove the mod from the folder.
+
+### Mark as false positive
+
+The automatic checks (MC, Format/warnings, Dependencies) read whatever the mod authors wrote in the
+metadata, and sometimes that data is incomplete or wrong: the result is an alarm that does not match
+reality. **Mark as false positive** opens a window listing the issues found for that mod, **one
+section per check column**:
+
+| Section | What you can do |
+|---------|-----------------|
+| **Minecraft version** | Write the correct constraint and/or declare the mod compatible |
+| **Missing dependencies** | Fix the modId being looked up (one by one) or declare it not missing |
+| **Scan warnings** | Silence the individual warnings that are not real problems |
+
+Every entry has a **False positive** switch and a **Reason** field: writing the reason is not
+mandatory, but it is the whole point of the feature — whoever opens the project next (or you in six
+months) has to understand why that alarm was silenced.
+
+- Fixing a **modId** immediately tells you whether it now resolves ("Solved by the correction").
+- If you only fix the **MC constraint** (without ticking "False positive") the dot turns **grey**, i.e.
+  "cannot be checked": the automatic comparison was made against the old constraint, so it no longer
+  holds. If you know the mod works, tick **False positive** too.
+- Whatever you mark as a false positive **leaves the counters** of the cards at the top and the chip
+  filters: the mod no longer counts as problematic.
+- In its place, the cell shows a small **wrench**: hover it to see what was corrected by hand and
+  why. It keeps "check passed" from looking the same as "check silenced".
+- Corrections are **per issue**, not per whole column: if a jar update introduces a new missing
+  dependency, you still see it.
+
+> 💡 If the window says "No issue detected for this mod", there is nothing to correct: that mod passed
+> every check.
 
 ## Datapacks
 

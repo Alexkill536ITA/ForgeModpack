@@ -64,6 +64,31 @@ export type mod = {
     description?: string,
     dependencies?: dependency[],
     authors?: string[],
+    // Dati dell'UTENTE (non della scansione): sopravvivono alla rilettura dei jar.
+    note?: string,          // nota libera sulla mod; opzionale = retrocompatibile
+    checks?: modChecks,     // correzioni manuali ai controlli diagnostici
+};
+
+// Correzione manuale di un singolo controllo diagnostico. I controlli della
+// tabella mod (compatibilità MC, dipendenze mancanti, avvisi di scansione) sono
+// euristici e leggono metadati che i mod compilano come vogliono: possono
+// sbagliare. Qui l'utente registra il valore giusto e/o dichiara che il
+// problema non esiste, sempre con il motivo — così la decisione resta scritta
+// nel project.json invece di vivere nella testa di chi l'ha presa.
+export type checkFix = {
+    falsePositive?: boolean,  // il problema non è reale: fuori da conteggi e filtri
+    value?: string,           // valore corretto a mano (vincolo MC / modId della dipendenza)
+    note?: string,            // perché
+};
+
+// Correzioni di una mod, una voce per colonna di controllo della tabella.
+// Dipendenze e avvisi sono indicizzati per singolo problema (modId dichiarato /
+// testo dell'avviso): un falso positivo "su tutta la colonna" nasconderebbe
+// anche i problemi che compaiono dopo un aggiornamento del jar.
+export type modChecks = {
+    mc?: checkFix,
+    dependencies?: Record<string, checkFix>,
+    warnings?: Record<string, checkFix>,
 };
 
 export type asset = {

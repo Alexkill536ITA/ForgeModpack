@@ -75,8 +75,25 @@ Scansiona `mods/` (e `datapacks/`), elenca con toggle attivo, ricerca fuzzy, ver
   `filename` (Map); **non** copia i keybind. Auto-scan solo la prima volta per workpath e solo se la
   lista è vuota (ref `initialized`).
 - **`scanDatapacks(force)`**: dir = `configs.datapacksPath` o `<workpath>/datapacks`.
-- **`missingDependencies`**: dipendenze `mandatory` non in `RUNTIME_DEPS` né in `installedIds`
-  (unione dei `provides` — o `modId` fallback — delle mod **attive**).
+- **`missingDependencies`** ([`mod-checks.ts`](../../../src/lib/mod-checks.ts)): dipendenze
+  `mandatory` non in `RUNTIME_DEPS` né in `installedIds` (unione dei `provides` — o `modId` fallback
+  — delle mod **attive**), al netto delle correzioni manuali dell'utente (vedi sotto).
+- **Colonna Azioni + correzione dei controlli**: ultima colonna, `DropdownMenu` per riga con
+  **Nota** ([`note-dialog.tsx`](../../../src/components/listmods/note-dialog.tsx)) e **Segna come
+  falso positivo** ([`checks-dialog.tsx`](../../../src/components/listmods/checks-dialog.tsx)). La
+  nota (`mod.note`) compare come icona nell'angolo in alto a destra della cella del nome (tooltip col
+  testo, click = modifica). Il dialog dei controlli mostra i problemi **una sezione per colonna di
+  controllo** (MC / dipendenze / avvisi) e per ciascuno permette di correggere il valore o marcarlo
+  falso positivo **con il motivo** (`mod.checks`, vedi
+  [02 — Modello dati](./02-modello-dati.md#note-e-checks--dati-dellutente-sulla-mod)). Le funzioni di
+  [`mod-checks.ts`](../../../src/lib/mod-checks.ts) applicano le correzioni in **un solo punto**,
+  quindi celle, `SummaryCard`, chip e `sortValue` le rispettano insieme: un falso positivo esce
+  davvero dai conteggi. Le celle mostrano un **marcatore a chiave inglese** (`FixMark`) quando il
+  controllo è passato per decisione dell'utente e non per esito della scansione — senza quel segno una
+  correzione sbagliata sarebbe indistinguibile da un jar a posto. Il dialog riceve la diagnostica
+  **grezza** (deve mostrare il problema come l'ha visto lo scanner) e rivaluta le dipendenze sulla
+  bozza, così correggendo un modId si vede subito se risulta installato; salva con **un solo**
+  `updateProject`. Granularità per singolo problema (modId/testo dell'avviso), non per colonna intera.
 - **`fuzzyMatch`/`modScore`**: ricerca a sottosequenza con punteggio; ordina `visibleMods`.
 - **`visibleMods`** (useMemo): pipeline a tre passaggi **chip → ricerca → ordinamento**.
   `installedIds`/`missing`/`withWarnings` sono memoizzati: ricreandoli a ogni render la memoizzazione
@@ -99,9 +116,10 @@ Scansiona `mods/` (e `datapacks/`), elenca con toggle attivo, ricerca fuzzy, ver
   **tra** gruppi — gruppo stato (`active`/`inactive`) e gruppo problemi (`missing`/`warnings`). I
   conteggi sui chip sono gli stessi delle `SummaryCard`; siccome `missing` considera solo le mod
   attive, "inactive + missing" è per costruzione vuoto.
-- **UI**: `SummaryCard` (totale/attive/inattive/mancanti/avvisi), barra ricerca + chip + "Azzera
-  filtri", tabella mod con header ordinabili (On/Mod/Version/Loader/Format/Authors/Dependencies con
-  pallino verde/rosso + tooltip mancanti) e tabella datapack (senza sort/chip: solo ricerca).
+- **UI**: `SummaryCard` (totale/attive/inattive/mancanti/incompatibili/avvisi), barra ricerca + chip +
+  "Azzera filtri", tabella mod con header ordinabili (On/Mod/Version/Loader/MC/Format/Authors/
+  Dependencies con pallino verde/rosso + tooltip mancanti) più la colonna **Azioni** (non ordinabile) e
+  tabella datapack (senza sort/chip: solo ricerca).
 
 ```mermaid
 flowchart LR

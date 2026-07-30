@@ -109,25 +109,32 @@ export function datapacksDir(p: project): Promise<string> {
 // --- Conversione scansione → liste del project -----------------------------
 
 /**
- * Mod del project dalla scansione, preservando `active` per `filename`. I
- * `keybinds` NON vengono copiati (restano nella cache): `project.json` resta
- * leggero. Le mod non più presenti sul disco spariscono, perché la lista è
- * ricostruita interamente dalla scansione.
+ * Mod del project dalla scansione, preservando i dati dell'UTENTE per
+ * `filename`: `active`, la `note` e le correzioni manuali dei controlli
+ * (`checks`) — che la scansione non conosce e riscriverebbe via. I `keybinds`
+ * NON vengono copiati (restano nella cache): `project.json` resta leggero. Le
+ * mod non più presenti sul disco spariscono (e con loro nota e correzioni),
+ * perché la lista è ricostruita interamente dalla scansione.
  */
 export function toProjectMods(scanned: scannedMod[], previous: mod[]): mod[] {
-  const prevActive = new Map(previous.map((m) => [m.filename, m.active]))
-  return scanned.map((s) => ({
-    active: prevActive.get(s.filename) ?? true,
-    filename: s.filename,
-    modId: s.modId,
-    name: s.name,
-    modloader: s.modloader as modloaderTypes,
-    version: s.version,
-    provides: s.provides,
-    description: s.description ?? undefined,
-    authors: s.authors,
-    dependencies: s.dependencies,
-  }))
+  const prev = new Map(previous.map((m) => [m.filename, m]))
+  return scanned.map((s) => {
+    const before = prev.get(s.filename)
+    return {
+      active: before?.active ?? true,
+      filename: s.filename,
+      modId: s.modId,
+      name: s.name,
+      modloader: s.modloader as modloaderTypes,
+      version: s.version,
+      provides: s.provides,
+      description: s.description ?? undefined,
+      authors: s.authors,
+      dependencies: s.dependencies,
+      note: before?.note,
+      checks: before?.checks,
+    }
+  })
 }
 
 /** Datapack del project dalla scansione, preservando `active` per `filename`. */
@@ -156,7 +163,7 @@ export interface listDiff {
 export const hasChanges = (diff: listDiff): boolean =>
   diff.added > 0 || diff.removed > 0 || diff.changed > 0
 
-/** Firma dei campi che arrivano dalla scansione (`active` è dell'utente: escluso). */
+/** Firma dei campi che arrivano dalla scansione (`active`/`note`/`checks` sono dell'utente: esclusi). */
 function modSignature(m: mod): string {
   return JSON.stringify([
     m.modId,

@@ -74,8 +74,25 @@ Scans `mods/` (and `datapacks/`), lists them with an active toggle, fuzzy search
   `filename` (Map); does **not** copy keybinds. Auto-scan only the first time per workpath and only if
   the list is empty (`initialized` ref).
 - **`scanDatapacks(force)`**: dir = `configs.datapacksPath` or `<workpath>/datapacks`.
-- **`missingDependencies`**: `mandatory` dependencies not in `RUNTIME_DEPS` nor in `installedIds`
-  (union of the `provides` — or `modId` fallback — of the **active** mods).
+- **`missingDependencies`** ([`mod-checks.ts`](../../../src/lib/mod-checks.ts)): `mandatory`
+  dependencies not in `RUNTIME_DEPS` nor in `installedIds` (union of the `provides` — or `modId`
+  fallback — of the **active** mods), minus the user's manual corrections (see below).
+- **Actions column + fixing the checks**: last column, one `DropdownMenu` per row with **Note**
+  ([`note-dialog.tsx`](../../../src/components/listmods/note-dialog.tsx)) and **Mark as false
+  positive** ([`checks-dialog.tsx`](../../../src/components/listmods/checks-dialog.tsx)). The note
+  (`mod.note`) shows up as an icon in the top-right corner of the name cell (tooltip with the text,
+  click to edit). The checks dialog lists the issues **one section per check column** (MC /
+  dependencies / warnings) and for each one lets you correct the value or mark it as a false positive
+  **with the reason** (`mod.checks`, see
+  [02 — Data model](./02-modello-dati.md#note-and-checks--the-users-own-data-about-a-mod)). The
+  functions in [`mod-checks.ts`](../../../src/lib/mod-checks.ts) apply the corrections in **one
+  place**, so cells, `SummaryCard`, chips and `sortValue` honour them together: a false positive
+  really does leave the counters. The cells show a **wrench marker** (`FixMark`) whenever a check
+  passes by the user's decision rather than by the scan's verdict — without that sign a wrong
+  correction would be indistinguishable from a healthy jar. The dialog receives the **raw**
+  diagnostics (it must show the issue as the scanner saw it) and re-evaluates dependencies against
+  the draft, so correcting a modId immediately shows whether it now resolves; it saves with a
+  **single** `updateProject`. Granularity is per issue (modId / warning text), not per whole column.
 - **`fuzzyMatch`/`modScore`**: subsequence search with scoring; sorts `visibleMods`.
 - **`visibleMods`** (useMemo): three-step pipeline **chips → search → sorting**.
   `installedIds`/`missing`/`withWarnings` are memoized: recreating them on every render would make
@@ -98,9 +115,10 @@ Scans `mods/` (and `datapacks/`), lists them with an active toggle, fuzzy search
   **across** groups — status group (`active`/`inactive`) and issues group (`missing`/`warnings`). The
   chip counts match the `SummaryCard` ones; since `missing` only considers active mods,
   "inactive + missing" is empty by construction.
-- **UI**: `SummaryCard` (total/active/inactive/missing/warnings), search bar + chips + "Clear filters",
-  mod table with sortable headers (On/Mod/Version/Loader/Format/Authors/Dependencies with a green/red
-  dot + tooltip for missing ones) and datapack table (no sort/chips: search only).
+- **UI**: `SummaryCard` (total/active/inactive/missing/incompatible/warnings), search bar + chips +
+  "Clear filters", mod table with sortable headers (On/Mod/Version/Loader/MC/Format/Authors/
+  Dependencies with a green/red dot + tooltip for missing ones) plus the **Actions** column (not
+  sortable) and datapack table (no sort/chips: search only).
 
 ```mermaid
 flowchart LR

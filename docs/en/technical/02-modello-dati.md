@@ -49,6 +49,18 @@ classDiagram
         description?: string
         authors?: string[]
         dependencies?: dependency[]
+        note?: string
+        checks?: modChecks
+    }
+    class modChecks {
+        mc?: checkFix
+        dependencies?: Record~string, checkFix~
+        warnings?: Record~string, checkFix~
+    }
+    class checkFix {
+        falsePositive?: boolean
+        value?: string
+        note?: string
     }
     class dependency {
         name: string
@@ -111,6 +123,8 @@ classDiagram
     project "1" *-- "*" keybindCategory
     project "1" *-- "*" keybindTag
     mod "1" *-- "*" dependency
+    mod "1" *-- "0..1" modChecks
+    modChecks "1" *-- "*" checkFix
     keybindMap "1" *-- "*" keybind
     keybindMap "1" *-- "*" macro
 ```
@@ -159,6 +173,27 @@ and dependencies bundled via JarJar). It is used by List Mods' dependency check 
 
 > ⚠️ The `keybinds` read from the scan are **not** copied into `project.json`: they stay only in
 > the SQLite cache, so the project file remains lightweight.
+
+### `note` and `checks` — the user's own data about a mod
+
+These are the only fields of `mod` that do **not** come from the scan, so
+[`toProjectMods`](../../../src/lib/mods-sync.ts) preserves them by `filename` together with
+`active` (otherwise re-reading the jars would wipe them); they are excluded from the diff
+signature, just like `active`. A mod that disappears from disk takes its note with it.
+
+- **`note?: string`** — free note about the mod ("do not update: it breaks the recipes…"). In List
+  Mods it shows up as an icon in the corner of the name cell, with the text in the tooltip.
+- **`checks?: modChecks`** — manual corrections of the diagnostic checks. The checks (MC
+  compatibility, missing dependencies, warnings) read metadata written by hand by mod authors: they
+  can be wrong. A `checkFix` records `falsePositive` (the issue is not real), `value` (the correct
+  value: MC constraint or the dependency's modId) and `note` (**the reason**), so the decision stays
+  written in the project instead of living in the head of whoever made it.
+
+`modChecks` has one entry per **check column**, and for dependencies/warnings the correction is
+keyed on the **single issue** (declared modId / warning text): a false positive covering "the whole
+column" would also hide issues that appear after a jar update. The logic that applies the
+corrections lives in [`mod-checks.ts`](../../../src/lib/mod-checks.ts) (pure functions) and is used
+by both the cells and the counters/filters of List Mods.
 
 ### `keybind` / `macro` / `keybindCategory` / `keybindTag`
 

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { RefreshCcwIcon, PackageIcon, CircleCheckIcon, CircleSlashIcon, CircleXIcon, CircleAlertIcon, SearchIcon, LayersIcon, TriangleAlertIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpDownIcon, FilterXIcon } from "lucide-react"
+import { RefreshCcwIcon, PackageIcon, CircleCheckIcon, CircleSlashIcon, CircleXIcon, CircleAlertIcon, SearchIcon, LayersIcon, TriangleAlertIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpDownIcon, FilterXIcon, MoreHorizontalIcon, StickyNoteIcon, WrenchIcon, ShieldCheckIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { useTranslation } from "@/src/i18n/i18n-provider"
@@ -25,6 +25,14 @@ import {
   TableRow,
 } from "../../components/ui/table"
 import { ToggleGroup, ToggleGroupItem } from "../../components/ui/toggle-group"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../../components/ui/dropdown-menu"
+import { NoteDialog } from "../../components/listmods/note-dialog"
+import { ChecksDialog } from "../../components/listmods/checks-dialog"
 import { cn } from "../../lib/utils"
 import { useAppDispatch, useAppSelector } from "../../redux/hooks"
 import { updateProject } from "../../redux/project-slice"
@@ -43,34 +51,19 @@ import {
   toProjectDatapacks,
   toProjectMods,
 } from "../../lib/mods-sync"
-import { mod, modloaderTypes, project, toastStyles } from "../../model/models"
+import { mod, modChecks, modloaderTypes, project, toastStyles } from "../../model/models"
 import { useBusy } from "../../lib/use-busy"
-
-// modId "ambiente" forniti dal loader/runtime: sempre soddisfatti, non sono mod.
-const RUNTIME_DEPS = new Set([
-  "minecraft",
-  "java",
-  "forge",
-  "neoforge",
-  "fabricloader",
-  "fabric",
-  "quilt_loader",
-  "quilt_base",
-])
-
-/**
- * Ritorna i modId delle dipendenze obbligatorie non soddisfatte da `installedIds`.
- * Ignora le dipendenze opzionali e quelle verso loader/runtime.
- */
-function missingDependencies(target: mod, installedIds: Set<string>): string[] {
-  return (target.dependencies ?? [])
-    .filter((dep) => dep.mandatory)
-    .map((dep) => dep.name)
-    .filter((name) => {
-      const id = name.toLowerCase()
-      return !RUNTIME_DEPS.has(id) && !installedIds.has(id)
-    })
-}
+// Controlli diagnostici + correzioni manuali dell'utente (`mod.checks`): tutte le
+// funzioni qui sotto tengono già conto dei falsi positivi e dei valori corretti a
+// mano, quindi conteggi, filtri e ordinamento li rispettano automaticamente.
+import {
+  activeWarnings,
+  dismissedWarnings,
+  effectiveMcCompatible,
+  effectiveMcConstraint,
+  fixedDependencies,
+  missingDependencies,
+} from "../../lib/mod-checks"
 
 /**
  * Fuzzy match "a sottosequenza": ogni carattere di `query` deve comparire in
@@ -191,7 +184,7 @@ function sortValue(m: mod, key: sortKey, ctx: sortContext): string | number {
     case "mc": {
       // Come `deps`: in crescente prima chi va bene, i problemi in fondo (e in
       // cima invertendo l'ordine).
-      const compat = ctx.diagnostics.get(m.filename)?.mcCompatible
+      const compat = effectiveMcCompatible(m, ctx.diagnostics.get(m.filename)?.mcCompatible)
       if (compat === true) return 0
       if (compat === false) return 2
       return 1 // non verificabile: in mezzo
@@ -327,6 +320,46 @@ function SummaryCard({
   )
 }
 
+/**
+ * Marcatore "corretto a mano" per le colonne di controllo: distingue un controllo
+ * superato dalla scansione da uno superato per DECISIONE DELL'UTENTE (falso
+ * positivo o valore corretto). Senza questo segno una correzione sbagliata
+ * sarebbe indistinguibile da un jar a posto.
+ */
+function FixMark({ children }: { children: React.ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="cursor-default text-sky-400">
+          <WrenchIcon className="size-3.5" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-80">{children}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/** Elenco "problema — motivo" dentro il tooltip di `FixMark`. */
+function FixList({
+  items,
+  mono = true,
+}: {
+  items: { key: string; note?: string }[]
+  /** Monospaziato: giusto per modId e vincoli, non per la frase di un avviso. */
+  mono?: boolean
+}) {
+  return (
+    <ul className="list-disc pl-4">
+      {items.map((item) => (
+        <li key={item.key}>
+          <span className={cn(mono && "font-mono")}>{item.key}</span>
+          {item.note ? ` — ${item.note}` : ""}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function ModsList({ project }: { project: project }) {
   const dispatch = useAppDispatch()
   const { t } = useTranslation()
@@ -436,12 +469,47 @@ function ModsList({ project }: { project: project }) {
     void scan()
   }, [scan, showMods])
 
-  function toggleActive(filename: string) {
+  /** Sostituisce una mod nella lista del project (unica via per modificarla). */
+  function patchMod(filename: string, patch: (m: mod) => mod) {
     const current = projectRef.current
-    const updated = current.mods.map((m) =>
-      m.filename === filename ? { ...m, active: !m.active } : m
-    )
+    const updated = current.mods.map((m) => (m.filename === filename ? patch(m) : m))
     dispatch(updateProject(setByPath(current, "mods", updated)))
+  }
+
+  function toggleActive(filename: string) {
+    patchMod(filename, (m) => ({ ...m, active: !m.active }))
+  }
+
+  // --- Azioni per mod (nota + correzione dei controlli) ---------------------
+  // La dialog aperta è identificata dal FILENAME, non da una copia della mod:
+  // così dopo un salvataggio mostra i dati aggiornati invece di uno scatto
+  // vecchio. `seq` cresce a ogni apertura ed entra nella `key`, per rimontare la
+  // dialog e ripartire da una bozza pulita anche riaprendo la stessa mod.
+  const [dialog, setDialog] = useState<{
+    kind: "note" | "checks"
+    filename: string
+    seq: number
+  } | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const dialogSeq = useRef(0)
+
+  function openDialog(kind: "note" | "checks", filename: string) {
+    dialogSeq.current += 1
+    setDialog({ kind, filename, seq: dialogSeq.current })
+    setDialogOpen(true)
+  }
+
+  // Resta valorizzata anche a dialog chiusa (l'animazione di uscita ha bisogno
+  // del contenuto); diventa null solo se la mod sparisce dal disco.
+  const dialogMod = dialog ? mods.find((m) => m.filename === dialog.filename) ?? null : null
+
+  function saveNote(filename: string, note: string) {
+    // Stringa vuota = nota rimossa: il campo sparisce invece di restare a "".
+    patchMod(filename, (m) => ({ ...m, note: note.trim() ? note : undefined }))
+  }
+
+  function saveChecks(filename: string, checks: modChecks | undefined) {
+    patchMod(filename, (m) => ({ ...m, checks }))
   }
 
   // Scansione datapack (cache SQLite `datapacks:<dir>`), con la stessa regola
@@ -519,16 +587,20 @@ function ModsList({ project }: { project: project }) {
     [mods, installedIds]
   )
   // Mod il cui jar ha prodotto avvisi in scansione (formato inatteso, metadati
-  // malformati, nessun file di lingua...): vanno guardate a occhio.
+  // malformati, nessun file di lingua...): vanno guardate a occhio. Gli avvisi
+  // marcati falso positivo non contano più.
   const withWarnings = useMemo(
-    () => mods.filter((m) => (diagnostics.get(m.filename)?.warnings.length ?? 0) > 0),
+    () => mods.filter((m) => activeWarnings(m, diagnostics.get(m.filename)?.warnings ?? []).length > 0),
     [mods, diagnostics]
   )
   // Mod il cui vincolo di versione MC dichiarato NON copre la versione del
   // progetto. A differenza delle dipendenze mancanti si contano anche le mod
   // disattivate: il dato dipende dal jar, non dallo stato del checkbox.
   const incompatible = useMemo(
-    () => mods.filter((m) => diagnostics.get(m.filename)?.mcCompatible === false),
+    () =>
+      mods.filter(
+        (m) => effectiveMcCompatible(m, diagnostics.get(m.filename)?.mcCompatible) === false
+      ),
     [mods, diagnostics]
   )
 
@@ -778,8 +850,11 @@ function ModsList({ project }: { project: project }) {
                       <SortableHead label={t("listmods.loader")} column="loader" sort={effectiveSort} onSort={toggleSort} className="w-28" t={t} />
                       <SortableHead label={t("listmods.mcVersion")} column="mc" sort={effectiveSort} onSort={toggleSort} className="w-36" t={t} />
                       <SortableHead label={t("listmods.format")} column="format" sort={effectiveSort} onSort={toggleSort} className="w-40" t={t} />
-                      <SortableHead label={t("listmods.authors")} column="authors" sort={effectiveSort} onSort={toggleSort} t={t} />
+                      {/* Autori: larghezza contenuta, il testo lungo va nel tooltip. */}
+                      <SortableHead label={t("listmods.authors")} column="authors" sort={effectiveSort} onSort={toggleSort} className="w-64" t={t} />
                       <SortableHead label={t("listmods.dependencies")} column="deps" sort={effectiveSort} onSort={toggleSort} className="w-40" t={t} />
+                      {/* Azioni: non ordinabile (non è un dato della mod). */}
+                      <TableHead className="w-16 text-right">{t("listmods.actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -792,9 +867,28 @@ function ModsList({ project }: { project: project }) {
                             aria-label={t("listmods.enable", { name: m.name })}
                           />
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="relative pr-7">
                           <div className="font-medium">{m.name}</div>
                           <div className="text-xs text-muted-foreground">{m.filename}</div>
+                          {/* Nota dell'utente: icona nell'angolo in alto a destra
+                              della cella, col testo nel tooltip; click = modifica. */}
+                          {m.note && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => openDialog("note", m.filename)}
+                                  className="absolute top-1.5 right-1.5 cursor-pointer text-amber-400 hover:text-amber-300"
+                                  aria-label={t("listmods.noteOn", { name: m.name })}
+                                >
+                                  <StickyNoteIcon className="size-3.5" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-80 whitespace-pre-wrap">
+                                {m.note}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
                         </TableCell>
                         <TableCell className="text-muted-foreground">{m.version || "—"}</TableCell>
                         <TableCell>
@@ -809,42 +903,56 @@ function ModsList({ project }: { project: project }) {
                             // l'esito. Grigio = non verificabile (sintassi non
                             // riconosciuta): NON è un errore della mod.
                             const diag = diagnostics.get(m.filename)
-                            const constraint = diag?.mcVersion
-                            if (!constraint) {
-                              return <span className="text-muted-foreground">—</span>
-                            }
-                            const compat = diag?.mcCompatible
+                            const fix = m.checks?.mc
+                            // Correzione manuale: vincolo e esito la rispettano.
+                            const constraint = effectiveMcConstraint(m, diag?.mcVersion)
+                            const compat = effectiveMcCompatible(m, diag?.mcCompatible)
+                            const fixed = !!(fix?.falsePositive || fix?.value)
                             const mcTarget = project.modloader.mcversion
                             return (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="flex cursor-default items-center gap-2">
-                                    <span
-                                      className={cn(
-                                        "size-2.5 shrink-0 rounded-full",
-                                        compat === true && "bg-emerald-500",
-                                        compat === false && "bg-red-500",
-                                        compat == null && "bg-muted-foreground"
-                                      )}
-                                    />
-                                    <span
-                                      className={cn(
-                                        "truncate font-mono text-xs",
-                                        compat === false ? "text-red-500" : "text-muted-foreground"
-                                      )}
-                                    >
-                                      {constraint}
-                                    </span>
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent className="max-w-80">
-                                  {compat === false
-                                    ? t("listmods.mcIncompatible", { constraint, mc: mcTarget })
-                                    : compat === true
-                                      ? t("listmods.mcCompatible", { constraint, mc: mcTarget })
-                                      : t("listmods.mcUnchecked", { constraint })}
-                                </TooltipContent>
-                              </Tooltip>
+                              <span className="flex items-center gap-1.5">
+                                {constraint ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="flex min-w-0 cursor-default items-center gap-2">
+                                        <span
+                                          className={cn(
+                                            "size-2.5 shrink-0 rounded-full",
+                                            compat === true && "bg-emerald-500",
+                                            compat === false && "bg-red-500",
+                                            compat == null && "bg-muted-foreground"
+                                          )}
+                                        />
+                                        <span
+                                          className={cn(
+                                            "truncate font-mono text-xs",
+                                            compat === false ? "text-red-500" : "text-muted-foreground"
+                                          )}
+                                        >
+                                          {constraint}
+                                        </span>
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-80">
+                                      {fix?.falsePositive
+                                        ? t("listmods.mcMarkedCompatible", { mc: mcTarget })
+                                        : compat === false
+                                          ? t("listmods.mcIncompatible", { constraint, mc: mcTarget })
+                                          : compat === true
+                                            ? t("listmods.mcCompatible", { constraint, mc: mcTarget })
+                                            : t("listmods.mcUnchecked", { constraint })}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                  <span className="text-muted-foreground">—</span>
+                                )}
+                                {fixed && (
+                                  <FixMark>
+                                    <div className="font-medium">{t("listmods.fixedByHand")}</div>
+                                    <FixList items={[{ key: constraint ?? "—", note: fix?.note }]} />
+                                  </FixMark>
+                                )}
+                              </span>
                             )
                           })()}
                         </TableCell>
@@ -857,6 +965,10 @@ function ModsList({ project }: { project: project }) {
                             if (!diag) return <span className="text-muted-foreground">—</span>
                             const label = formatLabel(diag.format, t)
                             const unknown = !diag.format || diag.format.startsWith("unknown") || diag.format === "unreadable"
+                            // Gli avvisi marcati falso positivo non si mostrano
+                            // più; restano nel marcatore di correzione.
+                            const warnings = activeWarnings(m, diag.warnings)
+                            const dismissed = dismissedWarnings(m, diag.warnings)
                             return (
                               <span className="flex items-center gap-1.5">
                                 <Badge
@@ -865,7 +977,7 @@ function ModsList({ project }: { project: project }) {
                                 >
                                   {label}
                                 </Badge>
-                                {diag.warnings.length > 0 && (
+                                {warnings.length > 0 && (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <span className="cursor-default text-amber-500">
@@ -875,50 +987,127 @@ function ModsList({ project }: { project: project }) {
                                     <TooltipContent className="max-w-80">
                                       <div className="font-medium">{t("listmods.scanWarnings")}</div>
                                       <ul className="list-disc pl-4">
-                                        {diag.warnings.map((w, i) => (
+                                        {warnings.map((w, i) => (
                                           <li key={i}>{w}</li>
                                         ))}
                                       </ul>
                                     </TooltipContent>
                                   </Tooltip>
                                 )}
+                                {dismissed.length > 0 && (
+                                  <FixMark>
+                                    <div className="font-medium">
+                                      {t("listmods.warningsDismissed", { count: dismissed.length })}
+                                    </div>
+                                    <FixList
+                                      mono={false}
+                                      items={dismissed.map((w) => ({
+                                        key: w,
+                                        note: m.checks?.warnings?.[w]?.note,
+                                      }))}
+                                    />
+                                  </FixMark>
+                                )}
                               </span>
                             )
                           })()}
                         </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {m.authors && m.authors.length > 0 ? m.authors.join(", ") : "—"}
+                        <TableCell className="max-w-32 text-muted-foreground">
+                          {(() => {
+                            // Gli autori sono la colonna più "elastica" (alcuni jar
+                            // ne elencano una decina): tronca e mostra l'elenco
+                            // completo nel tooltip, così non ruba spazio al nome.
+                            const authors = m.authors?.filter(Boolean) ?? []
+                            if (authors.length === 0) return "—"
+                            const label = authors.join(", ")
+                            return (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="cursor-default truncate">{label}</div>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-80">{label}</TooltipContent>
+                              </Tooltip>
+                            )
+                          })()}
                         </TableCell>
                         <TableCell>
                           {(() => {
                             const missing = missingDependencies(m, installedIds)
+                            // Dipendenze sistemate a mano (falso positivo o modId
+                            // corretto): fuori dall'elenco rosso, dentro il marcatore.
+                            const fixed = fixedDependencies(m, installedIds)
+                            const mark = fixed.length > 0 && (
+                              <FixMark>
+                                <div className="font-medium">
+                                  {t("listmods.depsFixedByHand", { count: fixed.length })}
+                                </div>
+                                <FixList
+                                  items={fixed.map((d) => ({
+                                    key: d.fix?.value?.trim() ? `${d.name} → ${d.lookup}` : d.name,
+                                    note: d.fix?.note,
+                                  }))}
+                                />
+                              </FixMark>
+                            )
                             if (missing.length === 0) {
                               return (
-                                <span className="flex items-center gap-2">
-                                  <span className="size-2.5 shrink-0 rounded-full bg-emerald-500" />
-                                  <span className="text-xs text-muted-foreground">{t("listmods.ok")}</span>
+                                <span className="flex items-center gap-1.5">
+                                  <span className="flex min-w-0 items-center gap-2">
+                                    <span className="size-2.5 shrink-0 rounded-full bg-emerald-500" />
+                                    <span className="text-xs text-muted-foreground">{t("listmods.ok")}</span>
+                                  </span>
+                                  {mark}
                                 </span>
                               )
                             }
                             return (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="flex items-center gap-2 cursor-default">
-                                    <span className="size-2.5 shrink-0 rounded-full bg-red-500" />
-                                    <span className="truncate text-xs text-red-500">{missing.join(", ")}</span>
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <div className="font-medium">{t("listmods.missingDependencies")}</div>
-                                  <ul className="list-disc pl-4">
-                                    {missing.map((dep) => (
-                                      <li key={dep}>{dep}</li>
-                                    ))}
-                                  </ul>
-                                </TooltipContent>
-                              </Tooltip>
+                              <span className="flex items-center gap-1.5">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="flex min-w-0 cursor-default items-center gap-2">
+                                      <span className="size-2.5 shrink-0 rounded-full bg-red-500" />
+                                      <span className="truncate text-xs text-red-500">{missing.join(", ")}</span>
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <div className="font-medium">{t("listmods.missingDependencies")}</div>
+                                    <ul className="list-disc pl-4">
+                                      {missing.map((dep) => (
+                                        <li key={dep}>{dep}</li>
+                                      ))}
+                                    </ul>
+                                  </TooltipContent>
+                                </Tooltip>
+                                {mark}
+                              </span>
                             )
                           })()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {/* Azioni per mod: nota libera e correzione dei controlli
+                              (falso positivo). Un menu invece di due bottoni: la
+                              riga è già densa e le azioni non sono frequenti. */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={t("listmods.actionsFor", { name: m.name || m.filename })}
+                              >
+                                <MoreHorizontalIcon />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-48">
+                              <DropdownMenuItem onSelect={() => openDialog("note", m.filename)}>
+                                <StickyNoteIcon />
+                                {m.note ? t("listmods.editNote") : t("listmods.addNote")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => openDialog("checks", m.filename)}>
+                                <ShieldCheckIcon />
+                                {t("listmods.markFalsePositive")}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1035,6 +1224,35 @@ function ModsList({ project }: { project: project }) {
             </CardContent>
           </Card>
         </>
+      )}
+
+      {/* Dialog delle azioni per mod: una sola istanza, per la mod scelta dal
+          menu. Restano montate a dialog chiusa (animazione di uscita) e si
+          rimontano alla riapertura grazie a `seq` nella `key`. */}
+      {dialogMod && dialog?.kind === "note" && (
+        <NoteDialog
+          key={`note-${dialog.seq}`}
+          target={dialogMod}
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onSave={(note) => saveNote(dialogMod.filename, note)}
+        />
+      )}
+      {dialogMod && dialog?.kind === "checks" && (
+        <ChecksDialog
+          key={`checks-${dialog.seq}`}
+          target={dialogMod}
+          installedIds={installedIds}
+          // Diagnostica GREZZA della scansione: il dialog deve mostrare il
+          // problema come l'ha visto lo scanner, non già corretto.
+          warnings={diagnostics.get(dialogMod.filename)?.warnings ?? []}
+          mcConstraint={diagnostics.get(dialogMod.filename)?.mcVersion ?? null}
+          mcCompatible={diagnostics.get(dialogMod.filename)?.mcCompatible ?? null}
+          mcTarget={project.modloader.mcversion}
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onSave={(checks) => saveChecks(dialogMod.filename, checks)}
+        />
       )}
     </div>
   )

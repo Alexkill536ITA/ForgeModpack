@@ -353,7 +353,25 @@ costringendo a generare una versione nuova prima di ogni build.
     checkbox `active` e colonna **Dependencies** (pallino verde se OK, rosso + lista dei modId
     mancanti via tooltip). `missingDependencies` confronta i `modId` delle dipendenze
     obbligatorie con l'insieme dei `provides` delle mod **attive**, ignorando loader/runtime
-    (`RUNTIME_DEPS`). Nota: i progetti salvati prima di `provides` vanno ri-scansionati (refresh)
+    (`RUNTIME_DEPS`) — vive in [`mod-checks.ts`](src/lib/mod-checks.ts) insieme al resto della
+    logica dei controlli.
+    **Colonna Azioni + correzione dei controlli**: ultima colonna, un `DropdownMenu` per riga con
+    **Nota** ([`note-dialog.tsx`](src/components/listmods/note-dialog.tsx)) e **Segna come falso
+    positivo** ([`checks-dialog.tsx`](src/components/listmods/checks-dialog.tsx)). `mod.note` è una
+    nota libera dell'utente, mostrata come icona nell'angolo in alto a destra della cella del nome
+    (tooltip col testo, click = modifica). `mod.checks` (`modChecks`/`checkFix` in
+    [`models.ts`](src/model/models.ts)) registra le correzioni manuali dei controlli diagnostici: per
+    ogni problema `falsePositive` (non è reale), `value` (il valore giusto: vincolo MC o modId della
+    dipendenza) e `note` (**il motivo**). Granularità **per singolo problema** (chiave = modId
+    dichiarato / testo dell'avviso), non per colonna intera: un falso positivo "su tutta la colonna"
+    nasconderebbe anche i problemi comparsi dopo un aggiornamento del jar. Tutte le funzioni di
+    [`mod-checks.ts`](src/lib/mod-checks.ts) (`missingDependencies`, `activeWarnings`,
+    `effectiveMcCompatible`…) applicano già le correzioni, quindi celle, `SummaryCard`, chip e
+    `sortValue` restano coerenti da soli: **un falso positivo esce davvero dai conteggi**. Le celle
+    mostrano un marcatore a chiave inglese (`FixMark`) quando il controllo passa per decisione
+    dell'utente e non per esito della scansione (senza quel segno una correzione sbagliata sarebbe
+    indistinguibile da un jar a posto). `note`/`checks` sono dati dell'UTENTE: `toProjectMods` li
+    preserva per `filename` come `active` e restano fuori da `modSignature` (non contano nel diff). Nota: i progetti salvati prima di `provides` vanno ri-scansionati (refresh)
     per beneficiare di JarJar/provides; il fallback usa il solo `modId`. La scansione (`scan_mods`) scrive i risultati in `project.mods` (Redux,
     via `setByPath`), preservando `active` per `filename`. **Si allinea al disco a ogni APERTURA di
     progetto** (vedi "Sincronizzazione col disco"), non solo quando `project.mods` è vuoto: mod
