@@ -1,6 +1,7 @@
 // Bump INTERATTIVO della versione del progetto. Aggiorna in modo SINCRONIZZATO
 // tutti i file che contengono la versione (package.json, tauri.conf.json,
-// Cargo.toml + Cargo.lock se presente), poi crea un commit e un tag git `vX.Y.Z`.
+// Cargo.toml + Cargo.lock se presente, badge nei README), poi crea un commit e
+// un tag git `vX.Y.Z`.
 //
 // `package.json` è la FONTE DI VERITÀ della versione corrente. Il tag creato qui
 // è ciò che il gate di build (`check-version.mjs`) verifica per consentire la build.
@@ -85,6 +86,20 @@ if (existsSync(lockPath)) {
   lock = lock.replace(/(name = "forgemodpack"\r?\nversion = )"[^"]*"/, `$1"${next}"`)
   writeFileSync(lockPath, lock)
   files.push("src-tauri/Cargo.lock")
+}
+
+// README (it/en): badge shields.io della versione. Non è un file "di versione" come gli
+// altri, ma è la prima cosa che si vede su GitHub: aggiornarlo a mano significa
+// dimenticarselo (è rimasto fermo alla 1.0.0 per sei release). Se il badge non c'è o è già
+// giusto il file resta invariato e il commit lo ignora.
+for (const readme of ["README.md", "README.it.md"]) {
+  const path = join(root, readme)
+  if (!existsSync(path)) continue
+  const before = readFileSync(path, "utf8")
+  const after = before.replace(/(badge\/version-)\d+\.\d+\.\d+(-)/g, `$1${next}$2`)
+  if (after === before) continue
+  writeFileSync(path, after)
+  files.push(readme)
 }
 
 // --- Git: commit (solo i file di versione) + tag ---

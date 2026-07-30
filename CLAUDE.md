@@ -43,8 +43,9 @@ Usa **pnpm** (non npm/yarn). Per testare le feature reali serve `tauri:dev`: le 
 
 **Versioning + gate di build**: la versione vive in TRE file da tenere allineati
 (`package.json` = fonte di verità, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`
-+ `Cargo.lock`). `pnpm bump` ([`scripts/bump-version.mjs`](scripts/bump-version.mjs))
-li aggiorna in blocco, poi crea commit + tag `vX.Y.Z`. La build è **bloccata** da
++ `Cargo.lock`), più il badge shields.io in `README.md`/`README.it.md`. `pnpm bump`
+([`scripts/bump-version.mjs`](scripts/bump-version.mjs)) li aggiorna in blocco, poi crea
+commit + tag `vX.Y.Z`. La build è **bloccata** da
 [`scripts/check-version.mjs`](scripts/check-version.mjs) (incatenato nel
 `beforeBuildCommand` di `tauri.conf.json`, vale sia per `pnpm tauri:build` sia per
 `tauri build`): fallisce se manca il tag `v<versione>` o se ci sono commit dopo quel tag,

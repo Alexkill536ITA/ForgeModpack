@@ -6,7 +6,7 @@
 
 **Manager and configuration editor for Minecraft modpacks — desktop, offline-first.**
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.2.6-blue.svg)](package.json)
 [![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB.svg?logo=tauri)](https://tauri.app)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000.svg?logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg?logo=typescript)](https://www.typescriptlang.org)
@@ -46,20 +46,36 @@ metadata online (Minecraft and modloader). Everything lives in a project file
   versions filtered from remote manifests.
 - ⚡ **Manifest cache (SQLite)** — versions are cached locally (24h TTL) with manual
   refresh: fast startups and full **offline** operation.
-- 🧩 **List Mods** — scans the `.jar` files (Rust backend) and extracts metadata from the
-  various loader formats; table with name, version, loader, authors, active state and
-  **missing dependency checks** (including those bundled via JarJar).
+- 🧩 **List Mods** — scans the `.jar` files (Rust backend) and extracts metadata from every
+  loader format, legacy Forge included (`mcmod.info`, ≤ 1.12.2). Sortable and filterable
+  table with active state, **missing dependency check** (including dependencies bundled via
+  JarJar), **compatibility with the project's Minecraft version** and the metadata file each
+  jar was read from, with scan warnings.
+- 🛠️ **Notes and false positives** — a free note per mod, plus manual corrections to the
+  checks: fix the value by hand (MC constraint, modId) or mark an issue as a false positive,
+  stating the reason. What you silence leaves the counters and the filters, and a wrench
+  marker keeps *"check passed"* from looking the same as *"check silenced"*.
+- 🔄 **Sync with disk** — mods and datapacks are re-read from the folder every time you open
+  the project: jars added, updated or deleted outside the app show up immediately.
 - 📦 **Datapack** — manage datapacks (`.zip`/folders with `pack.mcmeta`), on their own or in
   a hybrid combination with a classic loader.
 - ⌨️ **Keybinds** — graphical **keyboard editor** (ISO/IT layout + numpad + mouse), multiple
-  maps, classification by **Mod** and by **Tag**, up to 4 bindings per key and real actions
-  extracted from the mods' language files.
+  maps, **unlimited layers** per map, classification by **Mod** and by **Tag**, macros
+  (modifier + key) and filters that **isolate** the selection instead of dimming it. The
+  actions are the real ones: read from the **bytecode** of the classes that use the
+  Forge/NeoForge keybind API, plus the mods' language files.
 - 🔁 **Keybind import/export** — import keybind profiles and resolve the actions against the
-  installed mods; **export** to Minecraft's `options.txt` with conservative merge.
-- 🎛️ **JVM** — manage JVM arguments.
+  installed mods; **export** to Minecraft's `options.txt` (conservative merge), to
+  **Keyset** (`keybindprofiles.json`, every map in one file), to interactive **HTML** and to
+  **PNG** images packed in a ZIP (one per layer plus the complete one).
+- 🎛️ **JVM** — manage JVM arguments (RAM + garbage collector) with the generated flags.
 - 📝 **Documents** — file explorer for `config`/`kubejs` in the sidebar + **Monaco code
   editor** (offline) with its own dirty state, separate from the project.
-- 📊 **Analytics** — modpack summaries and statistics.
+- 🔔 **Update check** — the app checks GitHub Releases at startup (silently) or on demand,
+  with an opt-in for pre-releases. It never updates itself: you download the installer.
+- 🌐 **Bilingual interface** — Italian and English, switchable at runtime.
+- 📊 **Analytics** — *planned*: modpack summaries and statistics (the page is still a
+  placeholder).
 
 ## Tech stack
 
@@ -75,15 +91,22 @@ metadata online (Minecraft and modloader). Everything lives in a project file
 
 ## Requirements
 
-- **Windows / macOS / Linux** (the app is distributed via Tauri; NSIS bundle on Windows).
+- **Windows** — ready-made installers are published with every release.
+- **macOS / Linux** — no published binaries yet: the app is built with Tauri, so it can be
+  compiled from source (`pnpm tauri:build`).
 - An existing Minecraft modpack on disk to manage.
 
 ## Installation (end user)
 
-<!-- TODO: add the binaries link once the release is published -->
-Download the latest version from the **[Releases](https://github.com/Alexkill536ITA/ForgeModpack/releases)**
-page and install the executable for your operating system. On first launch, create or open a
-project by pointing it at your modpack folder.
+Download the latest version from the
+**[Releases](https://github.com/Alexkill536ITA/ForgeModpack/releases)** page:
+
+- `forgemodpack_<version>_x64-setup.exe` — NSIS installer (recommended)
+- `forgemodpack_<version>_x64_en-US.msi` — MSI package
+
+On first launch, create or open a project by pointing it at your modpack folder. The app tells
+you when a newer version is out, but it never installs anything on its own: you download and
+run the installer.
 
 ## Development
 
@@ -113,8 +136,19 @@ pnpm tauri:dev    # Desktop app in dev
 pnpm build        # Static Next export -> ./out (consumed by Tauri)
 pnpm tauri:build  # Build the desktop executable (requires a version bump, see Versioning)
 pnpm bump         # Interactive version bump (patch/minor/major) + commit + tag
-pnpm lint         # Lint
+pnpm icons        # Regenerate the app icons from the source image
 ```
+
+Checks:
+
+```bash
+pnpm exec tsc --noEmit              # frontend type-check
+cd src-tauri && cargo test --lib    # Rust tests (metadata parsers, version ranges, keybinds)
+```
+
+> [!NOTE]
+> `pnpm lint` currently fails: `next lint` was removed in Next.js 16 and the script has not
+> been replaced yet. The type-check above is what you should run.
 
 ## Project structure
 
@@ -123,13 +157,17 @@ ForgeModpack_V2/
 ├─ src/
 │  ├─ app/            # Next.js pages (App Router): /, /listmods, /keybinds,
 │  │                  #   /jvm, /documents, /analytics
-│  ├─ components/     # React components (shadcn UI in components/ui)
-│  ├─ redux/          # Store and slices (project, manifest, documents, keybind...)
-│  ├─ lib/            # Helpers: manifest, cache, scans, keybind-export, i18n utils
+│  ├─ components/     # React components (shadcn UI in components/ui, plus
+│  │                  #   listmods/ and keybinds/ dialogs)
+│  ├─ redux/          # Store and slices (project, manifest, documents, keybind, busy)
+│  ├─ lib/            # Helpers: manifests, caches, scans, mod checks, keybind export
 │  ├─ model/          # Data model types (project, mod, keybind, manifest)
 │  └─ i18n/           # Custom i18n system + it/en dictionaries
 ├─ src-tauri/
-│  └─ src/            # Rust backend: lib.rs, mods.rs (scans), files.rs (file tree)
+│  └─ src/            # Rust backend: lib.rs, mods.rs (jar/datapack scans),
+│                     #   keybind_scan.rs + class_scan.rs (keybinds from bytecode),
+│                     #   forge_spec.rs, mc_compat.rs (version ranges),
+│                     #   files.rs (file tree)
 ├─ docs/              # IT/EN documentation (technical + usage guide)
 ├─ scripts/           # bump-version, check-version, copy-monaco, generate-icons
 └─ public/            # Static assets (loader icons, Monaco)
@@ -145,13 +183,15 @@ and **two levels**:
 - 🇮🇹 **Tecnica**: [`docs/it/tecnica/`](docs/it/tecnica/README.md)
 - 🇮🇹 **Guida d'uso**: [`docs/it/utilizzo/`](docs/it/utilizzo/README.md)
 
-Each folder starts from its own `README.md` (index).
+Each folder starts from its own `README.md` (index). The **release notes** — bilingual, one
+entry per version — are on the
+[Releases](https://github.com/Alexkill536ITA/ForgeModpack/releases) page.
 
 ## Versioning & build
 
 The version is kept in sync across three files (`package.json` = source of truth,
-`src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` + `Cargo.lock`). `pnpm bump` updates them
-all at once and creates a commit + `vX.Y.Z` tag.
+`src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` + `Cargo.lock`) plus the badge in both
+READMEs. `pnpm bump` updates them all at once and creates a commit + `vX.Y.Z` tag.
 
 > [!WARNING]
 > The build is **blocked** by a version-check script: `pnpm tauri:build` fails if the
@@ -163,8 +203,10 @@ all at once and creates a commit + `vX.Y.Z` tag.
 Contributions are welcome! Before opening a PR:
 
 1. Follow the project conventions (comments and documentation in **Italian**; UI
-   internationalized via `t("namespace.key")`, never hardcoded strings).
-2. Verify type-check and lint (`pnpm lint`).
+   internationalized via `t("namespace.key")` with **matching keys** in `en.json` and
+   `it.json`, never hardcoded strings; every scrollable area uses `ScrollArea`).
+2. Verify the type-check (`pnpm exec tsc --noEmit`) and, if you touched the backend, the
+   Rust tests (`cd src-tauri && cargo test --lib`).
 3. Test the real features with `pnpm tauri:dev`.
 
 See the [technical documentation](docs/en/technical/README.md) for the architecture.
